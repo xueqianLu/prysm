@@ -3,7 +3,6 @@ package slasher
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/pkg/errors"
 	types "github.com/prysmaticlabs/eth2-types"
@@ -18,7 +17,6 @@ func (s *Service) checkSlashableAttestations(
 	ctx context.Context, currentEpoch types.Epoch, atts []*slashertypes.IndexedAttestationWrapper,
 ) ([]*ethpb.AttesterSlashing, error) {
 	slashings := make([]*ethpb.AttesterSlashing, 0)
-	indices := make([]types.ValidatorIndex, 0)
 
 	// Check for double votes.
 	doubleVoteSlashings, err := s.checkDoubleVotes(ctx, atts)
@@ -29,9 +27,7 @@ func (s *Service) checkSlashableAttestations(
 
 	// Group by chunk index and check for surround vote slashings.
 	groupedAtts := s.groupByValidatorChunkIndex(atts)
-	i := 0
 	for validatorChunkIdx, batch := range groupedAtts {
-		start := time.Now()
 		attSlashings, err := s.detectAllAttesterSlashings(ctx, &chunkUpdateArgs{
 			validatorChunkIndex: validatorChunkIdx,
 			currentEpoch:        currentEpoch,
@@ -40,18 +36,14 @@ func (s *Service) checkSlashableAttestations(
 			return nil, err
 		}
 		slashings = append(slashings, attSlashings...)
-		indices = append(indices, s.params.validatorIndicesInChunk(validatorChunkIdx)...)
-		if i < 5 {
-			fmt.Printf("Took %v to process batch of size %d\n", time.Since(start), len(batch))
+		indices := s.params.validatorIndicesInChunk(validatorChunkIdx)
+		//fmt.Println("Writing last epoch written for validators", len(indices))
+		//startInner := time.Now()
+		if err := s.serviceCfg.Database.SaveLastEpochWrittenForValidators(ctx, indices, currentEpoch); err != nil {
+			return nil, err
 		}
-		i++
+		//fmt.Printf("Saved last epoch written for vals %v\n", time.Since(startInner))
 	}
-	start := time.Now()
-	fmt.Println("Writing last epoch written for validators", len(indices))
-	if err := s.serviceCfg.Database.SaveLastEpochWrittenForValidators(ctx, indices, currentEpoch); err != nil {
-		return nil, err
-	}
-	fmt.Printf("Saved last epoch written for vals %v\n", time.Since(start))
 	if len(slashings) > 0 {
 		log.WithField("numSlashings", len(slashings)).Info("Slashable attestation offenses found")
 	}
