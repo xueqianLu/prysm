@@ -26,7 +26,7 @@ func TestSlasherTimes(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	dirs := map[string]types.Slot{"/tmp/attestations": 1530238, "/tmp/attestations2": 1530239}
+	dirs := map[string]types.Slot{"/tmp/attestations": 2380670, "/tmp/attestations2": 2380671}
 	for dir, slot := range dirs {
 		indexedAttWrappers, err := fetchIndexedAttestationWrapperFixtures(dir)
 		require.NoError(t, err)
