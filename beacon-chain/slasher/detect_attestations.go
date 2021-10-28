@@ -27,6 +27,7 @@ func (s *Service) checkSlashableAttestations(
 
 	// Group by chunk index and check for surround vote slashings.
 	groupedAtts := s.groupByValidatorChunkIndex(atts)
+	fmt.Printf("Processing %d batches of attestations", len(groupedAtts))
 	for validatorChunkIdx, batch := range groupedAtts {
 		attSlashings, err := s.detectAllAttesterSlashings(ctx, &chunkUpdateArgs{
 			validatorChunkIndex: validatorChunkIdx,

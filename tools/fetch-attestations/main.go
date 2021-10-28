@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	outputFlag = flag.String("output-dir", "/tmp/attestations", "output dir path for ssz contents")
+	outputFlag = flag.String("output-dir", "/tmp/attestations2", "output dir path for ssz contents")
 	slotFlag   = flag.Uint64("slot", 0, "slot to fetch")
 )
 
