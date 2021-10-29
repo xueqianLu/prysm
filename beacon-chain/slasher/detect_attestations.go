@@ -3,6 +3,7 @@ package slasher
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -12,6 +13,23 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
 )
+
+var monitor *avgProcessingMonitor
+var monitorLock sync.RWMutex
+
+type avgProcessingMonitor struct {
+	updateMinChunkTimes           []time.Duration
+	updateMaxChunkTimes           []time.Duration
+	saveChunksTimes               []time.Duration
+	epochUpdateForValidatorTimes  []time.Duration
+	latestEpochWrittenDBCallTimes []time.Duration
+	saveLastWrittenEpochTimes     []time.Duration
+	checkSlashableTimes           []time.Duration
+	chunkUpdateTimes              []time.Duration
+	loadChunkTimes                []time.Duration
+	chunkCacheHits                int
+	chunkCacheMisses              int
+}
 
 // Takes in a list of indexed attestation wrappers and returns any
 // found attester slashings to the caller.
@@ -46,28 +64,55 @@ func (s *Service) checkSlashableAttestations(
 		}
 		slashings = append(slashings, attSlashings...)
 		indices := s.params.validatorIndicesInChunk(validatorChunkIdx)
+		startSave := time.Now()
 		if err := s.serviceCfg.Database.SaveLastEpochWrittenForValidators(ctx, indices, currentEpoch); err != nil {
 			return nil, err
 		}
+		monitorLock.Lock()
+		monitor.saveLastWrittenEpochTimes = append(monitor.saveLastWrittenEpochTimes, time.Since(startSave))
+		monitorLock.Unlock()
 		batchTimes = append(batchTimes, time.Since(innerStart))
 	}
-	var avgProcessingTimePerBatch time.Duration
-	for _, dur := range batchTimes {
-		avgProcessingTimePerBatch += dur
-	}
-	if avgProcessingTimePerBatch != time.Duration(0) {
-		avgProcessingTimePerBatch = avgProcessingTimePerBatch / time.Duration(len(batchTimes))
-	}
 	log.WithFields(logrus.Fields{
-		"numAttestations": len(atts),
+		"numAttestations":                 len(atts),
 		"numBatchesByValidatorChunkIndex": len(groupedAtts),
-		"elapsed": time.Since(start),
-		"avgBatchProcessingTime":	avgProcessingTimePerBatch,
+		"elapsed":                         time.Since(start),
+		"avgBatchProcessingTime":          avgDuration(batchTimes),
 	}).Info("Done checking slashable attestations")
+	logMonitorInformation()
+
 	if len(slashings) > 0 {
 		log.WithField("numSlashings", len(slashings)).Info("Slashable attestation offenses found")
 	}
 	return slashings, nil
+}
+
+func logMonitorInformation() {
+	monitorLock.Lock()
+	log.WithFields(logrus.Fields{
+		"avgMinChunkUpdateTime":           avgDuration(monitor.updateMinChunkTimes),
+		"minChunkUpdateCalls":             len(monitor.updateMinChunkTimes),
+		"avgMaxChunkUpdateTime":           avgDuration(monitor.updateMaxChunkTimes),
+		"maxChunkUpdateCalls":             len(monitor.updateMaxChunkTimes),
+		"avgSaveChunksTime":               avgDuration(monitor.saveChunksTimes),
+		"saveChunksCalls":                 len(monitor.saveChunksTimes),
+		"avgEpochUpdateForValidatorTime":  avgDuration(monitor.epochUpdateForValidatorTimes),
+		"epochUpdateForValidatorCalls":    len(monitor.epochUpdateForValidatorTimes),
+		"avgLatestEpochWrittenDBCallTime": avgDuration(monitor.latestEpochWrittenDBCallTimes),
+		"latestEpochWrittenDBCalls":       len(monitor.latestEpochWrittenDBCallTimes),
+		"avgSaveLastWrittenEpochTime":     avgDuration(monitor.latestEpochWrittenDBCallTimes),
+		"saveLastWrittenEpochCalls":       len(monitor.saveLastWrittenEpochTimes),
+		"avgCheckSlashableTime":           avgDuration(monitor.checkSlashableTimes),
+		"checkSlashableCalls":             len(monitor.checkSlashableTimes),
+		"avgChunkUpdateTime":              avgDuration(monitor.chunkUpdateTimes),
+		"chunkUpdateCalls":                len(monitor.chunkUpdateTimes),
+		"avgLoadChunksTime":               avgDuration(monitor.loadChunkTimes),
+		"loadChunksCalls":                 len(monitor.loadChunkTimes),
+		"chunkCacheHits":                  monitor.chunkCacheHits,
+		"chunkCacheMisses":                monitor.chunkCacheMisses,
+	}).Info("Slasher processing avg times and metrics")
+	monitor = &avgProcessingMonitor{}
+	monitorLock.Unlock()
 }
 
 // Given a list of attestations all corresponding to a validator chunk index as well
@@ -98,10 +143,14 @@ func (s *Service) detectAllAttesterSlashings(
 
 	// Get the latest epoch written for each of the validators. If no epoch is written,
 	// set the epoch to value of 0.
+	start := time.Now()
 	lastCurrentEpochs, err := s.serviceCfg.Database.LastEpochWrittenForValidators(ctx, validatorIndices)
 	if err != nil {
 		return nil, errors.Wrap(err, "could not get latest epoch attested for validators")
 	}
+	monitorLock.Lock()
+	monitor.latestEpochWrittenDBCallTimes = append(monitor.latestEpochWrittenDBCallTimes, time.Since(start))
+	monitorLock.Unlock()
 	lastWrittenEpochByValidator := make(map[types.ValidatorIndex]types.Epoch, len(validatorIndices))
 	for _, lastEpoch := range lastCurrentEpochs {
 		lastWrittenEpochByValidator[lastEpoch.ValidatorIndex] = lastEpoch.Epoch
@@ -109,6 +158,7 @@ func (s *Service) detectAllAttesterSlashings(
 
 	// Update the min/max span chunks for the change of current epoch.
 	for _, validatorIndex := range validatorIndices {
+		startInner := time.Now()
 		if err := s.epochUpdateForValidator(ctx, args, updatedChunks, validatorIndex, lastWrittenEpochByValidator); err != nil {
 			return nil, errors.Wrapf(
 				err,
@@ -116,9 +166,13 @@ func (s *Service) detectAllAttesterSlashings(
 				validatorIndex,
 			)
 		}
+		monitorLock.Lock()
+		monitor.epochUpdateForValidatorTimes = append(monitor.epochUpdateForValidatorTimes, time.Since(startInner))
+		monitorLock.Unlock()
 	}
 
 	// Update min and max spans and retrieve any detected slashable offenses.
+	start = time.Now()
 	surroundingSlashings, err := s.updateSpans(ctx, updatedChunks, &chunkUpdateArgs{
 		kind:                slashertypes.MinSpan,
 		validatorChunkIndex: args.validatorChunkIndex,
@@ -131,7 +185,11 @@ func (s *Service) detectAllAttesterSlashings(
 			args.validatorChunkIndex,
 		)
 	}
+	monitorLock.Lock()
+	monitor.updateMinChunkTimes = append(monitor.updateMinChunkTimes, time.Since(start))
+	monitorLock.Unlock()
 
+	start = time.Now()
 	surroundedSlashings, err := s.updateSpans(ctx, updatedChunks, &chunkUpdateArgs{
 		kind:                slashertypes.MaxSpan,
 		validatorChunkIndex: args.validatorChunkIndex,
@@ -144,14 +202,22 @@ func (s *Service) detectAllAttesterSlashings(
 			args.validatorChunkIndex,
 		)
 	}
+	monitorLock.Lock()
+	monitor.updateMaxChunkTimes = append(monitor.updateMaxChunkTimes, time.Since(start))
+	monitorLock.Unlock()
 
 	// Consolidate all slashings into a slice.
 	slashings := make([]*ethpb.AttesterSlashing, 0, len(surroundingSlashings)+len(surroundedSlashings))
 	slashings = append(slashings, surroundingSlashings...)
 	slashings = append(slashings, surroundedSlashings...)
+
+	start = time.Now()
 	if err := s.saveUpdatedChunks(ctx, args, updatedChunks); err != nil {
 		return nil, err
 	}
+	monitorLock.Lock()
+	monitor.saveChunksTimes = append(monitor.saveChunksTimes, time.Since(start))
+	monitorLock.Unlock()
 	return slashings, nil
 }
 
@@ -345,6 +411,7 @@ func (s *Service) applyAttestationForValidator(
 	}
 
 	// Check slashable, if so, return the slashing.
+	start := time.Now()
 	slashing, err := chunk.CheckSlashable(
 		ctx,
 		s.serviceCfg.Database,
@@ -358,6 +425,9 @@ func (s *Service) applyAttestationForValidator(
 			validatorIndex,
 		)
 	}
+	monitorLock.Lock()
+	monitor.checkSlashableTimes = append(monitor.checkSlashableTimes, time.Since(start))
+	monitorLock.Unlock()
 	if slashing != nil {
 		return slashing, nil
 	}
@@ -375,6 +445,7 @@ func (s *Service) applyAttestationForValidator(
 	// us we need to proceed to the next chunk, we continue by determining
 	// the start epoch of the next chunk. We exit once no longer need to
 	// keep updating chunks.
+	start = time.Now()
 	for {
 		chunkIdx = s.params.chunkIndex(startEpoch)
 		chunk, err := s.getChunk(ctx, args, chunksByChunkIdx, chunkIdx)
@@ -407,6 +478,9 @@ func (s *Service) applyAttestationForValidator(
 		// Move to first epoch of next chunk if needed.
 		startEpoch = chunk.NextChunkStartEpoch(startEpoch)
 	}
+	monitorLock.Lock()
+	monitor.chunkUpdateTimes = append(monitor.chunkUpdateTimes, time.Since(start))
+	monitorLock.Unlock()
 	return nil, nil
 }
 
@@ -421,14 +495,25 @@ func (s *Service) getChunk(
 ) (Chunker, error) {
 	chunk, ok := chunksByChunkIdx[chunkIdx]
 	if ok {
+		monitorLock.Lock()
+		monitor.chunkCacheHits++
+		monitorLock.Unlock()
 		return chunk, nil
 	}
+	monitorLock.Lock()
+	monitor.chunkCacheMisses++
+	monitorLock.Unlock()
+
+	start := time.Now()
 	// We can ensure we load the appropriate chunk we need by fetching from the DB.
 	diskChunks, err := s.loadChunks(ctx, args, []uint64{chunkIdx})
 	if err != nil {
 		return nil, errors.Wrapf(err, "could not load chunk at index %d", chunkIdx)
 	}
 	if chunk, ok := diskChunks[chunkIdx]; ok {
+		monitorLock.Lock()
+		monitor.loadChunkTimes = append(monitor.loadChunkTimes, time.Since(start))
+		monitorLock.Unlock()
 		return chunk, nil
 	}
 	return nil, fmt.Errorf("could not retrieve chunk at chunk index %d from disk", chunkIdx)
@@ -498,4 +583,15 @@ func (s *Service) saveUpdatedChunks(
 	}
 	chunksSavedTotal.Add(float64(len(chunks)))
 	return s.serviceCfg.Database.SaveSlasherChunks(ctx, args.kind, chunkKeys, chunks)
+}
+
+func avgDuration(times []time.Duration) time.Duration {
+	var avgProcessingTimePerBatch time.Duration
+	for _, dur := range times {
+		avgProcessingTimePerBatch += dur
+	}
+	if avgProcessingTimePerBatch != time.Duration(0) {
+		avgProcessingTimePerBatch = avgProcessingTimePerBatch / time.Duration(len(times))
+	}
+	return avgProcessingTimePerBatch
 }

@@ -114,6 +114,8 @@ func (s *Service) run() {
 		return
 	}
 
+	monitor = &avgProcessingMonitor{}
+
 	stateSub.Unsubscribe()
 	s.waitForSync(s.genesisTime)
 
