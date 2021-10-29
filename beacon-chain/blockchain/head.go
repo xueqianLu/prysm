@@ -248,7 +248,7 @@ func (s *Service) headBlock() block.SignedBeaconBlock {
 // It does a full copy on head state for immutability.
 // This is a lock free version.
 func (s *Service) headState(ctx context.Context) state.BeaconState {
-	ctx, span := trace.StartSpan(ctx, "blockChain.headState")
+	_, span := trace.StartSpan(ctx, "blockChain.headState")
 	defer span.End()
 
 	return s.head.state.Copy()
@@ -377,7 +377,7 @@ func (s *Service) notifyNewHeadEvent(
 // This saves the attestations inside the beacon block with respect to root `orphanedRoot` back into the
 // attestation pool. It also filters out the attestations that is one epoch older as a
 // defense so invalid attestations don't flow into the attestation pool.
-func (s *Service) saveOrphanedAtts(ctx context.Context, orphanedRoot [32]byte, newHeadRoot [32]byte) error {
+func (s *Service) saveOrphanedAtts(ctx context.Context, orphanedRoot, newHeadRoot [32]byte) error {
 	if !features.Get().CorrectlyInsertOrphanedAtts {
 		return nil
 	}
@@ -420,7 +420,7 @@ func (s *Service) saveAttestations(blocks []block.SignedBeaconBlock) error {
 
 // Get the blocks from the head to the base.
 // It includes the head block but excludes the base block
-func (s *Service) getOrphanedBlocks(ctx context.Context, head [32]byte, base [32]byte) ([]block.SignedBeaconBlock, error) {
+func (s *Service) getOrphanedBlocks(ctx context.Context, head, base [32]byte) ([]block.SignedBeaconBlock, error) {
 	var blocks []block.SignedBeaconBlock
 	for head != base {
 		headBlk, err := s.cfg.BeaconDB.Block(ctx, head)
@@ -436,8 +436,8 @@ func (s *Service) getOrphanedBlocks(ctx context.Context, head [32]byte, base [32
 	return blocks, nil
 }
 
-// Get the latest common ancestor root that both branches are base off.
-func (s *Service) commonAncestorRoot(ctx context.Context, root1 [32]byte, root2 [32]byte) ([32]byte, error) {
+// Get the latest common ancestor root that both branches are based off.
+func (s *Service) commonAncestorRoot(ctx context.Context, root1, root2 [32]byte) ([32]byte, error) {
 	blk1, err := s.cfg.BeaconDB.Block(ctx, root1)
 	if err != nil {
 		return [32]byte{}, err
@@ -448,6 +448,23 @@ func (s *Service) commonAncestorRoot(ctx context.Context, root1 [32]byte, root2 
 	}
 	if blk1 == nil || blk2 == nil {
 		return [32]byte{}, errors.New("nil blocks")
+	}
+
+	// Bound the traversal to be within one epoch away either of the root.
+	var boundaryEpoch types.Epoch
+	blk1Epoch := slots.ToEpoch(blk1.Block().Slot())
+	blk2Epoch := slots.ToEpoch(blk2.Block().Slot())
+	if blk1Epoch <= blk2Epoch {
+		boundaryEpoch = blk1Epoch
+	} else {
+		boundaryEpoch = blk2Epoch
+	}
+	if boundaryEpoch > 1 { // Safety check for the first epoch
+		boundaryEpoch = boundaryEpoch - 1
+	}
+	boundarySlot, err := slots.EpochStart(boundaryEpoch)
+	if err != nil {
+		return [32]byte{}, err
 	}
 
 	// Keep walking back both of the branches until both heads are the same
@@ -464,6 +481,12 @@ func (s *Service) commonAncestorRoot(ctx context.Context, root1 [32]byte, root2 
 		}
 		if err != nil {
 			return [32]byte{}, err
+		}
+
+		// A safety check to prevent a deep traversal
+		// The number of traversal is at most "2 * SLOTS_PER_EPOCH" per root.
+		if blk1.Block().Slot() < boundarySlot || blk2.Block().Slot() < boundarySlot {
+			return [32]byte{}, errors.New("cannot find common ancestor from the immediately preceding epoch")
 		}
 	}
 
