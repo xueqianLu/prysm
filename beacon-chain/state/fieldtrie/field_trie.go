@@ -120,7 +120,7 @@ func (f *FieldTrie) RecomputeTrie(indices []uint64, elements interface{}) ([32]b
 			indexExists[startIdx] = true
 			newRoots = append(newRoots, fieldRoots[i])
 		}
-		fieldRoot, f.fieldLayers, err = stateutil.RecomputeFromLayerVariable(newRoots, newIndices, f.fieldLayers)
+		fieldRoot, f.fieldLayers, err = stateutil.RecomputeFromLayerVariable2(newRoots, newIndices, f.fieldLayers)
 		if err != nil {
 			return [32]byte{}, err
 		}

@@ -3,6 +3,7 @@ package stateutil
 import (
 	"bytes"
 	"encoding/binary"
+	"sort"
 
 	"github.com/pkg/errors"
 	"github.com/prysmaticlabs/prysm/container/trie"
@@ -157,6 +158,18 @@ func RecomputeFromLayerVariable(changedLeaves [][32]byte, changedIdx []uint64, l
 	return root, layer, nil
 }
 
+// RecomputeFromLayerVariable recomputes specific branches of a variable sized trie depending on the provided changed indexes.
+func RecomputeFromLayerVariable2(changedLeaves [][32]byte, changedIdx []uint64, layer [][]*[32]byte) ([32]byte, [][]*[32]byte, error) {
+	hasher := hash.CustomSHA256Hasher()
+	if len(changedIdx) == 0 {
+		return *layer[0][0], layer, nil
+	}
+
+	sortedIface := sortableIndices{indices: changedIdx, roots: changedLeaves}
+	sort.Sort(sortedIface)
+	return recomputeRootFromLayerVariable2(changedIdx, changedLeaves, layer, hasher)
+}
+
 // this method assumes that the provided trie already has all its elements included
 // in the base depth.
 func recomputeRootFromLayer(idx int, layers [][]*[32]byte, chunks []*[32]byte,
@@ -243,6 +256,58 @@ func recomputeRootFromLayerVariable(idx int, item [32]byte, layers [][]*[32]byte
 	return root, layers, nil
 }
 
+func recomputeRootFromLayerVariable2(idxs []uint64, roots [][32]byte, layers [][]*[32]byte,
+	hasher func([]byte) [32]byte) ([32]byte, [][]*[32]byte, error) {
+	for idxs[len(idxs)-1] >= uint64(len(layers[0])) {
+		zerohash := trie.ZeroHashes[0]
+		layers[0] = append(layers[0], &zerohash)
+	}
+
+	for i, idx := range idxs {
+		layers[0][idx] = &roots[i]
+	}
+	compressedLayers := compressToChangedLayers(idxs, len(layers))
+	for i := 1; i < len(compressedLayers); i++ {
+		changedIndexes := compressedLayers[i]
+		for _, currIdx := range changedIndexes {
+			leftIdx := currIdx * 2
+			rightIdx := currIdx*2 + 1
+			leftElem := *layers[i-1][leftIdx]
+			rightElem := [32]byte{}
+			if rightIdx >= uint64(len(layers[i-1])) {
+				rightElem = trie.ZeroHashes[i-1]
+			} else {
+				rightElem = *layers[i-1][rightIdx]
+			}
+			parentHash := hasher(append(leftElem[:], rightElem[:]...))
+			if len(layers[i]) == 0 || int(currIdx) >= len(layers[i]) {
+				newItem := parentHash
+				layers[i] = append(layers[i], &newItem)
+			} else {
+				newItem := parentHash
+				layers[i][currIdx] = &newItem
+			}
+		}
+	}
+	return *layers[len(layers)-1][0], layers, nil
+}
+
+func compressToChangedLayers(indexes []uint64, numOfLayers int) [][]uint64 {
+	indexLayers := make([][]uint64, 0, numOfLayers)
+	indexLayers = append(indexLayers, indexes)
+	for i := 1; i < numOfLayers; i++ {
+		newLayer := []uint64{}
+		for _, idx := range indexLayers[i-1] {
+			if len(newLayer) > 0 && newLayer[len(newLayer)-1] == idx/2 {
+				continue
+			}
+			newLayer = append(newLayer, idx/2)
+		}
+		indexLayers = append(indexLayers, newLayer)
+	}
+	return indexLayers
+}
+
 // AddInMixin describes a method from which a lenth mixin is added to the
 // provided root.
 func AddInMixin(root [32]byte, length uint64) ([32]byte, error) {
@@ -315,4 +380,23 @@ func MerkleizeTrieLeaves(layers [][][32]byte, hashLayer [][32]byte,
 		i++
 	}
 	return layers, hashLayer, nil
+}
+
+type sortableIndices struct {
+	indices []uint64
+	roots   [][32]byte
+}
+
+// Len is the number of elements in the collection.
+func (s sortableIndices) Len() int { return len(s.indices) }
+
+// Swap swaps the elements with indexes i and j.
+func (s sortableIndices) Swap(i, j int) {
+	s.indices[i], s.indices[j] = s.indices[j], s.indices[i]
+	s.roots[i], s.roots[j] = s.roots[j], s.roots[i]
+}
+
+// Less reports whether the element with index i must sort before the element with index j.
+func (s sortableIndices) Less(i, j int) bool {
+	return s.indices[i] < s.indices[j]
 }
