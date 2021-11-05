@@ -98,9 +98,8 @@ func (s *Service) processQueuedAttestations(ctx context.Context, slotTicker <-ch
 				"numValidAtts":    len(validAtts),
 				"numDeferredAtts": len(validInFuture),
 				"numDroppedAtts":  numDropped,
-			}).Info("New slot, processing queued atts for slashing detection")
+			}).Info("Processing queued attestations for slashing detection")
 
-			start := time.Now()
 			// Save the attestation records to our database.
 			if err := s.serviceCfg.Database.SaveAttestationRecordsForValidators(
 				ctx, validAtts,
@@ -122,8 +121,6 @@ func (s *Service) processQueuedAttestations(ctx context.Context, slotTicker <-ch
 				log.WithError(err).Error("Could not process attester slashings")
 				continue
 			}
-
-			log.WithField("elapsed", time.Since(start)).Debug("Done checking slashable attestations")
 
 			processedAttestationsTotal.Add(float64(len(validAtts)))
 		case <-ctx.Done():
@@ -147,7 +144,7 @@ func (s *Service) processQueuedBlocks(ctx context.Context, slotTicker <-chan typ
 				"currentSlot":  currentSlot,
 				"currentEpoch": currentEpoch,
 				"numBlocks":    len(blocks),
-			}).Info("New slot, processing queued blocks for slashing detection")
+			}).Info("Processing queued blocks for slashing detection")
 
 			start := time.Now()
 			// Check for slashings.
@@ -218,9 +215,11 @@ func (s *Service) pruneSlasherDataWithinSlidingWindow(ctx context.Context, curre
 	if err != nil {
 		return errors.Wrap(err, "Could not prune proposals")
 	}
-	log.WithFields(logrus.Fields{
-		"prunedAttestationRecords": numPrunedAtts,
-		"prunedProposalRecords":    numPrunedProposals,
-	}).Info("Successfully pruned slasher data")
+	if numPrunedAtts > 0 || numPrunedProposals > 0 {
+		log.WithFields(logrus.Fields{
+			"prunedAttestationRecords": numPrunedAtts,
+			"prunedProposalRecords":    numPrunedProposals,
+		}).Info("Successfully pruned slasher data")
+	}
 	return nil
 }

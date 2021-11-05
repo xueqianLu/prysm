@@ -3,11 +3,13 @@ package slasher
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 	types "github.com/prysmaticlabs/eth2-types"
 	slashertypes "github.com/prysmaticlabs/prysm/beacon-chain/slasher/types"
 	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
+	"github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
 )
 
@@ -19,16 +21,22 @@ func (s *Service) checkSlashableAttestations(
 	slashings := make([]*ethpb.AttesterSlashing, 0)
 
 	// Check for double votes.
+	log.Debug("Checking for double votes")
+	start := time.Now()
 	doubleVoteSlashings, err := s.checkDoubleVotes(ctx, atts)
 	if err != nil {
 		return nil, errors.Wrap(err, "could not check slashable double votes")
 	}
+	log.WithField("elapsed", time.Since(start)).Info("Done checking double votes")
 	slashings = append(slashings, doubleVoteSlashings...)
 
 	// Group by chunk index and check for surround vote slashings.
 	groupedAtts := s.groupByValidatorChunkIndex(atts)
-	fmt.Printf("Processing %d batches of attestations", len(groupedAtts))
+	log.WithField("numBatches", len(groupedAtts)).Info("Batching attestations by validator chunk index")
+	start = time.Now()
+	batchTimes := make([]time.Duration, 0, len(groupedAtts))
 	for validatorChunkIdx, batch := range groupedAtts {
+		innerStart := time.Now()
 		attSlashings, err := s.detectAllAttesterSlashings(ctx, &chunkUpdateArgs{
 			validatorChunkIndex: validatorChunkIdx,
 			currentEpoch:        currentEpoch,
@@ -38,13 +46,24 @@ func (s *Service) checkSlashableAttestations(
 		}
 		slashings = append(slashings, attSlashings...)
 		indices := s.params.validatorIndicesInChunk(validatorChunkIdx)
-		//fmt.Println("Writing last epoch written for validators", len(indices))
-		//startInner := time.Now()
 		if err := s.serviceCfg.Database.SaveLastEpochWrittenForValidators(ctx, indices, currentEpoch); err != nil {
 			return nil, err
 		}
-		//fmt.Printf("Saved last epoch written for vals %v\n", time.Since(startInner))
+		batchTimes = append(batchTimes, time.Since(innerStart))
 	}
+	var avgProcessingTimePerBatch time.Duration
+	for _, dur := range batchTimes {
+		avgProcessingTimePerBatch += dur
+	}
+	if avgProcessingTimePerBatch != time.Duration(0) {
+		avgProcessingTimePerBatch = avgProcessingTimePerBatch / time.Duration(len(batchTimes))
+	}
+	log.WithFields(logrus.Fields{
+		"numAttestations":                 len(atts),
+		"numBatchesByValidatorChunkIndex": len(groupedAtts),
+		"elapsed":                         time.Since(start),
+		"avgBatchProcessingTime":          avgProcessingTimePerBatch,
+	}).Info("Done checking slashable attestations")
 	if len(slashings) > 0 {
 		log.WithField("numSlashings", len(slashings)).Info("Slashable attestation offenses found")
 	}
@@ -199,6 +218,11 @@ func (s *Service) checkDoubleVotesOnDisk(
 	return doubleVoteSlashings, nil
 }
 
+// This function updates the slashing spans for a given validator for a change in epoch
+// since the last epoch we have recorded for the validator. For example, if the last epoch a validator
+// has written is N, and the current epoch is N+5, we update entries in the slashing spans
+// with their neutral element for epochs N+1 to N+4. This also puts any loaded chunks in a
+// map used as a cache for further processing and minimizing database reads later on.
 func (s *Service) epochUpdateForValidator(
 	ctx context.Context,
 	args *chunkUpdateArgs,
