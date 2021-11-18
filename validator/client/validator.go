@@ -31,6 +31,7 @@ import (
 	accountsiface "github.com/prysmaticlabs/prysm/validator/accounts/iface"
 	"github.com/prysmaticlabs/prysm/validator/accounts/wallet"
 	"github.com/prysmaticlabs/prysm/validator/client/iface"
+	"github.com/prysmaticlabs/prysm/validator/client/relay"
 	vdb "github.com/prysmaticlabs/prysm/validator/db"
 	"github.com/prysmaticlabs/prysm/validator/db/kv"
 	"github.com/prysmaticlabs/prysm/validator/graffiti"
@@ -53,6 +54,7 @@ var (
 )
 
 type validator struct {
+	relayer                            relay.Relayer
 	logValidatorBalances               bool
 	useWeb                             bool
 	emitAccountMetrics                 bool
