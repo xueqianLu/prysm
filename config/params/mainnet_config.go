@@ -178,6 +178,7 @@ var mainnetBeaconConfig = &BeaconChainConfig{
 	PresetBase:                  "mainnet",
 	BeaconStateFieldCount:       21,
 	BeaconStateAltairFieldCount: 24,
+	BeaconStateMergeFieldCount:  25,
 
 	// Slasher related values.
 	WeakSubjectivityPeriod:          54000,
@@ -230,6 +231,9 @@ var mainnetBeaconConfig = &BeaconChainConfig{
 	InactivityPenaltyQuotientAltair:      3 * 1 << 24, //50331648
 	MinSlashingPenaltyQuotientAltair:     64,
 	ProportionalSlashingMultiplierAltair: 2,
+	MinSlashingPenaltyQuotientMerge:      32,
+	ProportionalSlashingMultiplierMerge:  3,
+	InactivityPenaltyQuotientMerge:       1 << 24,
 
 	// Light client
 	MinSyncCommitteeParticipants: 1,

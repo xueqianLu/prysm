@@ -10,7 +10,6 @@ import (
 	"github.com/prysmaticlabs/prysm/beacon-chain/core/feed"
 	statefeed "github.com/prysmaticlabs/prysm/beacon-chain/core/feed/state"
 	"github.com/prysmaticlabs/prysm/beacon-chain/core/helpers"
-	"github.com/prysmaticlabs/prysm/beacon-chain/core/time"
 	"github.com/prysmaticlabs/prysm/beacon-chain/forkchoice/protoarray"
 	"github.com/prysmaticlabs/prysm/beacon-chain/state"
 	"github.com/prysmaticlabs/prysm/config/features"
@@ -42,19 +41,16 @@ func (s *Service) updateHead(ctx context.Context, balances []uint64) error {
 	// ensure head gets its best justified info.
 	if s.bestJustifiedCheckpt.Epoch > s.justifiedCheckpt.Epoch {
 		s.justifiedCheckpt = s.bestJustifiedCheckpt
-		if err := s.cacheJustifiedStateBalances(ctx, bytesutil.ToBytes32(s.justifiedCheckpt.Root)); err != nil {
-			return err
-		}
 	}
 
 	// Get head from the fork choice service.
 	f := s.finalizedCheckpt
 	j := s.justifiedCheckpt
-	// To get head before the first justified epoch, the fork choice will start with genesis root
+	// To get head before the first justified epoch, the fork choice will start with origin root
 	// instead of zero hashes.
 	headStartRoot := bytesutil.ToBytes32(j.Root)
 	if headStartRoot == params.BeaconConfig().ZeroHash {
-		headStartRoot = s.genesisRoot
+		headStartRoot = s.originBlockRoot
 	}
 
 	// In order to process head, fork choice store requires justified info.
@@ -248,7 +244,7 @@ func (s *Service) headBlock() block.SignedBeaconBlock {
 // It does a full copy on head state for immutability.
 // This is a lock free version.
 func (s *Service) headState(ctx context.Context) state.BeaconState {
-	ctx, span := trace.StartSpan(ctx, "blockChain.headState")
+	_, span := trace.StartSpan(ctx, "blockChain.headState")
 	defer span.End()
 
 	return s.head.state.Copy()
@@ -273,57 +269,6 @@ func (s *Service) hasHeadState() bool {
 	return s.head != nil && s.head.state != nil
 }
 
-// This caches justified state balances to be used for fork choice.
-func (s *Service) cacheJustifiedStateBalances(ctx context.Context, justifiedRoot [32]byte) error {
-	if err := s.cfg.BeaconDB.SaveBlocks(ctx, s.getInitSyncBlocks()); err != nil {
-		return err
-	}
-
-	s.clearInitSyncBlocks()
-
-	var justifiedState state.BeaconState
-	var err error
-	if justifiedRoot == s.genesisRoot {
-		justifiedState, err = s.cfg.BeaconDB.GenesisState(ctx)
-		if err != nil {
-			return err
-		}
-	} else {
-		justifiedState, err = s.cfg.StateGen.StateByRoot(ctx, justifiedRoot)
-		if err != nil {
-			return err
-		}
-	}
-	if justifiedState == nil || justifiedState.IsNil() {
-		return errors.New("justified state can't be nil")
-	}
-
-	epoch := time.CurrentEpoch(justifiedState)
-
-	justifiedBalances := make([]uint64, justifiedState.NumValidators())
-	if err := justifiedState.ReadFromEveryValidator(func(idx int, val state.ReadOnlyValidator) error {
-		if helpers.IsActiveValidatorUsingTrie(val, epoch) {
-			justifiedBalances[idx] = val.EffectiveBalance()
-		} else {
-			justifiedBalances[idx] = 0
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	s.justifiedBalancesLock.Lock()
-	defer s.justifiedBalancesLock.Unlock()
-	s.justifiedBalances = justifiedBalances
-	return nil
-}
-
-func (s *Service) getJustifiedBalances() []uint64 {
-	s.justifiedBalancesLock.RLock()
-	defer s.justifiedBalancesLock.RUnlock()
-	return s.justifiedBalances
-}
-
 // Notifies a common event feed of a new chain head event. Called right after a new
 // chain head is determined, set, and saved to disk.
 func (s *Service) notifyNewHeadEvent(
@@ -332,8 +277,8 @@ func (s *Service) notifyNewHeadEvent(
 	newHeadStateRoot,
 	newHeadRoot []byte,
 ) error {
-	previousDutyDependentRoot := s.genesisRoot[:]
-	currentDutyDependentRoot := s.genesisRoot[:]
+	previousDutyDependentRoot := s.originBlockRoot[:]
+	currentDutyDependentRoot := s.originBlockRoot[:]
 
 	var previousDutyEpoch types.Epoch
 	currentDutyEpoch := slots.ToEpoch(newHeadSlot)

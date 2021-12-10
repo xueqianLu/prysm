@@ -17,6 +17,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/pkg/errors"
+	types "github.com/prysmaticlabs/eth2-types"
 	apigateway "github.com/prysmaticlabs/prysm/api/gateway"
 	"github.com/prysmaticlabs/prysm/async/event"
 	"github.com/prysmaticlabs/prysm/beacon-chain/blockchain"
@@ -28,6 +29,7 @@ import (
 	"github.com/prysmaticlabs/prysm/beacon-chain/forkchoice"
 	"github.com/prysmaticlabs/prysm/beacon-chain/forkchoice/protoarray"
 	"github.com/prysmaticlabs/prysm/beacon-chain/gateway"
+	"github.com/prysmaticlabs/prysm/beacon-chain/monitor"
 	"github.com/prysmaticlabs/prysm/beacon-chain/node/registration"
 	"github.com/prysmaticlabs/prysm/beacon-chain/operations/attestations"
 	"github.com/prysmaticlabs/prysm/beacon-chain/operations/slashings"
@@ -202,6 +204,10 @@ func New(cliCtx *cli.Context, opts ...Option) (*BeaconNode, error) {
 	}
 
 	if err := beacon.registerGRPCGateway(); err != nil {
+		return nil, err
+	}
+
+	if err := beacon.registerValidatorMonitorService(); err != nil {
 		return nil, err
 	}
 
@@ -483,7 +489,7 @@ func (b *BeaconNode) registerP2P(cliCtx *cli.Context) error {
 		MetaDataDir:       cliCtx.String(cmd.P2PMetadata.Name),
 		TCPPort:           cliCtx.Uint(cmd.P2PTCPPort.Name),
 		UDPPort:           cliCtx.Uint(cmd.P2PUDPPort.Name),
-		MaxPeers:          cliCtx.Uint(cmd.P2PMaxPeers.Name),
+		MaxPeers:          cliCtx.Uint64(cmd.P2PMaxPeers.Name),
 		AllowListCIDR:     cliCtx.String(cmd.P2PAllowList.Name),
 		DenyListCIDR:      slice.SplitCommaSeparated(cliCtx.StringSlice(cmd.P2PDenyList.Name)),
 		EnableUPnP:        cliCtx.Bool(cmd.EnableUPnPFlag.Name),
@@ -824,19 +830,22 @@ func (b *BeaconNode) registerGRPCGateway() error {
 		muxs = append(muxs, gatewayConfig.EthPbMux)
 	}
 
-	g := apigateway.New(
-		b.ctx,
-		muxs,
-		gatewayConfig.Handler,
-		selfAddress,
-		gatewayAddress,
-	).WithAllowedOrigins(allowedOrigins).
-		WithRemoteCert(selfCert).
-		WithMaxCallRecvMsgSize(maxCallSize)
-	if flags.EnableHTTPEthAPI(httpModules) {
-		g.WithApiMiddleware(&apimiddleware.BeaconEndpointFactory{})
+	opts := []apigateway.Option{
+		apigateway.WithGatewayAddr(gatewayAddress),
+		apigateway.WithRemoteAddr(selfAddress),
+		apigateway.WithPbHandlers(muxs),
+		apigateway.WithMuxHandler(gatewayConfig.Handler),
+		apigateway.WithRemoteCert(selfCert),
+		apigateway.WithMaxCallRecvMsgSize(maxCallSize),
+		apigateway.WithAllowedOrigins(allowedOrigins),
 	}
-
+	if flags.EnableHTTPEthAPI(httpModules) {
+		opts = append(opts, apigateway.WithApiMiddleware(&apimiddleware.BeaconEndpointFactory{}))
+	}
+	g, err := apigateway.New(b.ctx, opts...)
+	if err != nil {
+		return err
+	}
 	return b.services.RegisterService(g)
 }
 
@@ -865,4 +874,34 @@ func (b *BeaconNode) registerDeterminsticGenesisService() error {
 		return b.services.RegisterService(svc)
 	}
 	return nil
+}
+
+func (b *BeaconNode) registerValidatorMonitorService() error {
+	if cmd.ValidatorMonitorIndicesFlag.Value == nil {
+		return nil
+	}
+	cliSlice := cmd.ValidatorMonitorIndicesFlag.Value.Value()
+	if cliSlice == nil {
+		return nil
+	}
+	tracked := make([]types.ValidatorIndex, len(cliSlice))
+	for i := range tracked {
+		tracked[i] = types.ValidatorIndex(cliSlice[i])
+	}
+
+	var chainService *blockchain.Service
+	if err := b.services.FetchService(&chainService); err != nil {
+		return err
+	}
+	monitorConfig := &monitor.ValidatorMonitorConfig{
+		StateNotifier:       b,
+		AttestationNotifier: b,
+		StateGen:            b.stateGen,
+		HeadFetcher:         chainService,
+	}
+	svc, err := monitor.NewService(b.ctx, monitorConfig, tracked)
+	if err != nil {
+		return err
+	}
+	return b.services.RegisterService(svc)
 }
