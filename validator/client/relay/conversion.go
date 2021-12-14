@@ -45,7 +45,6 @@ func (r *Relayer) convertEthDutiesResponse(
 	currEpochAttesterResp *ethpbv1.AttesterDutiesResponse,
 	nextEpochAttesterResp *ethpbv1.AttesterDutiesResponse,
 	currEpochProposerResp *ethpbv1.ProposerDutiesResponse,
-	nextEpochProposerResp *ethpbv1.ProposerDutiesResponse,
 	currEpochSyncCommitteeResp *ethpbv2.SyncCommitteeDutiesResponse,
 	nextEpochSyncCommitteeResp *ethpbv2.SyncCommitteeDutiesResponse,
 	currEpochCommmittees []*ethpbv1.Committee,
@@ -54,7 +53,6 @@ func (r *Relayer) convertEthDutiesResponse(
 	currEpochAttesterMap := make(map[types.ValidatorIndex]*ethpbv1.AttesterDuty, len(currEpochAttesterResp.Data))
 	nextEpochAttesterMap := make(map[types.ValidatorIndex]*ethpbv1.AttesterDuty, len(nextEpochAttesterResp.Data))
 	currEpochProposerMap := make(map[types.ValidatorIndex][]*ethpbv1.ProposerDuty, len(currEpochProposerResp.Data))
-	nextEpochProposerMap := make(map[types.ValidatorIndex][]*ethpbv1.ProposerDuty, len(nextEpochProposerResp.Data))
 	currEpochSyncCommitteeMap := make(map[types.ValidatorIndex]*ethpbv2.SyncCommitteeDuty, len(currEpochSyncCommitteeResp.Data))
 	nextEpochSyncCommitteeMap := make(map[types.ValidatorIndex]*ethpbv2.SyncCommitteeDuty, len(nextEpochSyncCommitteeResp.Data))
 
@@ -65,12 +63,6 @@ func (r *Relayer) convertEthDutiesResponse(
 		nextEpochAttesterMap[d.ValidatorIndex] = d
 	}
 	for _, d := range currEpochProposerResp.Data {
-		if currEpochProposerMap[d.ValidatorIndex] == nil {
-			currEpochProposerMap[d.ValidatorIndex] = make([]*ethpbv1.ProposerDuty, 0)
-		}
-		currEpochProposerMap[d.ValidatorIndex] = append(currEpochProposerMap[d.ValidatorIndex], d)
-	}
-	for _, d := range nextEpochProposerResp.Data {
 		if currEpochProposerMap[d.ValidatorIndex] == nil {
 			currEpochProposerMap[d.ValidatorIndex] = make([]*ethpbv1.ProposerDuty, 0)
 		}
@@ -92,7 +84,7 @@ func (r *Relayer) convertEthDutiesResponse(
 	nextEpochDuties := make([]*Duty, 0)
 	for i, idx := range indices {
 		hasCurrentDuty := currEpochAttesterMap[idx] != nil || currEpochProposerMap[idx] != nil || currEpochSyncCommitteeMap[idx] != nil
-		hasNextDuty := nextEpochAttesterMap[idx] != nil || nextEpochProposerMap[idx] != nil || nextEpochSyncCommitteeMap[idx] != nil
+		hasNextDuty := nextEpochAttesterMap[idx] != nil || nextEpochSyncCommitteeMap[idx] != nil
 
 		if hasCurrentDuty {
 			var attSlot types.Slot
@@ -147,14 +139,6 @@ func (r *Relayer) convertEthDutiesResponse(
 				attSlot = attDuty.Slot
 			}
 
-			proposerSlots := make([]types.Slot, 0)
-			proposerDuties, ok := nextEpochProposerMap[idx]
-			if ok {
-				for _, d := range proposerDuties {
-					proposerSlots = append(proposerSlots, d.Slot)
-				}
-			}
-
 			var committee []types.ValidatorIndex
 			var committeeIndex types.CommitteeIndex
 		nextEpoch:
@@ -178,7 +162,7 @@ func (r *Relayer) convertEthDutiesResponse(
 				Committee:       committee,
 				CommitteeIndex:  committeeIndex,
 				AttesterSlot:    attSlot,
-				ProposerSlots:   proposerSlots,
+				ProposerSlots:   make([]types.Slot, 0),
 				PublicKey:       vals[i].Validator.Pubkey,
 				Status:          convertEthValidatorStatus(vals[i].Status),
 				ValidatorIndex:  idx,

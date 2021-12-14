@@ -84,10 +84,6 @@ func (r *Relayer) GetDuties(ctx context.Context, epoch eth2types.Epoch, publicKe
 		if err != nil {
 			return nil, err
 		}
-		nextEpochProposerDuties, err := r.EthValidatorClient.GetProposerDuties(ctx, &ethpbv1.ProposerDutiesRequest{Epoch: epoch.Add(1)})
-		if err != nil {
-			return nil, err
-		}
 		nextEpochSyncCommitteeDuties, err := r.EthValidatorClient.GetSyncCommitteeDuties(ctx, &ethpbv2.SyncCommitteeDutiesRequest{
 			Epoch: epoch.Add(1),
 			Index: indices,
@@ -116,7 +112,6 @@ func (r *Relayer) GetDuties(ctx context.Context, epoch eth2types.Epoch, publicKe
 			currEpochAttesterDuties,
 			nextEpochAttesterDuties,
 			currEpochProposerDuties,
-			nextEpochProposerDuties,
 			currEpochSyncCommitteeDuties,
 			nextEpochSyncCommitteeDuties,
 			currEpochCommmittees.Data,
