@@ -18,6 +18,7 @@ import (
 	lruwrpr "github.com/prysmaticlabs/prysm/cache/lru"
 	"github.com/prysmaticlabs/prysm/config/params"
 	"github.com/prysmaticlabs/prysm/encoding/bytesutil"
+	"github.com/prysmaticlabs/prysm/proto/eth/service"
 	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
 	"github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1/block"
 	accountsiface "github.com/prysmaticlabs/prysm/validator/accounts/iface"
@@ -171,7 +172,10 @@ func (v *ValidatorService) Start() {
 		return
 	}
 
-	relayer := relay.Relayer{}
+	relayer := relay.New(relay.Prysm)
+	relayer.PrysmValidatorClient = ethpb.NewBeaconNodeValidatorClient(v.conn)
+	relayer.EthBeaconChainClient = service.NewBeaconChainClient(v.conn)
+	relayer.EthValidatorClient = service.NewBeaconValidatorClient(v.conn)
 
 	valStruct := &validator{
 		relayer:                        relayer,

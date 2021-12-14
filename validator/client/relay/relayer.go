@@ -3,10 +3,7 @@ package relay
 import (
 	"context"
 
-	"github.com/pkg/errors"
 	eth2types "github.com/prysmaticlabs/eth2-types"
-	"github.com/prysmaticlabs/prysm/beacon-chain/blockchain"
-	"github.com/prysmaticlabs/prysm/encoding/bytesutil"
 	"github.com/prysmaticlabs/prysm/proto/eth/service"
 	ethpbv1 "github.com/prysmaticlabs/prysm/proto/eth/v1"
 	ethpbv2 "github.com/prysmaticlabs/prysm/proto/eth/v2"
@@ -23,9 +20,9 @@ const (
 // TODO: Visibility of field types
 type Relayer struct {
 	api                  Api
-	prysmValidatorClient ethpbalpha.BeaconNodeValidatorClient
-	ethValidatorClient   service.BeaconValidatorClient
-	headFetcher          blockchain.HeadFetcher
+	PrysmValidatorClient ethpbalpha.BeaconNodeValidatorClient
+	EthValidatorClient   service.BeaconValidatorClient
+	EthBeaconChainClient service.BeaconChainClient
 }
 
 func New(api Api) *Relayer {
@@ -33,67 +30,97 @@ func New(api Api) *Relayer {
 }
 
 func (r *Relayer) GetDuties(ctx context.Context, epoch eth2types.Epoch, publicKeys [][]byte) (*Duties, error) {
-	var duties Duties
+	if len(publicKeys) == 0 {
+		// TODO: What to do? Return empty duties without error?
+	}
 
 	if r.api == Prysm {
-		apiDuties, err := r.prysmValidatorClient.GetDuties(ctx, &ethpbalpha.DutiesRequest{
+		apiDuties, err := r.PrysmValidatorClient.GetDuties(ctx, &ethpbalpha.DutiesRequest{
 			Epoch:      epoch,
 			PublicKeys: publicKeys,
 		})
 		if err != nil {
 			return nil, err
 		}
-		return ConvertPrysmDutiesResponse(apiDuties), nil
+		return convertPrysmDutiesResponse(apiDuties), nil
 	} else {
-		s, err := r.headFetcher.HeadState(ctx)
-		if err != nil {
-			return nil, err
-		}
-		indices := make([]eth2types.ValidatorIndex, len(publicKeys))
-		for i, pk := range publicKeys {
-			idx, ok := s.ValidatorIndexByPubkey(bytesutil.ToBytes48(pk))
-			if !ok {
-				return nil, errors.New("could not get validator index")
-			}
-			indices[i] = idx
-		}
-		currEpochAttesterDuties, err := r.ethValidatorClient.GetAttesterDuties(ctx, &ethpbv1.AttesterDutiesRequest{
-			Epoch: epoch,
-			Index: indices,
-		})
-		if err != nil {
-			return nil, err
-		}
-		currEpochProposerDuties, err := r.ethValidatorClient.GetProposerDuties(ctx, &ethpbv1.ProposerDutiesRequest{Epoch: epoch})
-		if err != nil {
-			return nil, err
-		}
-		currEpochSyncCommitteeDuties, err := r.ethValidatorClient.GetSyncCommitteeDuties(ctx, &ethpbv2.SyncCommitteeDutiesRequest{
-			Epoch: epoch,
-			Index: indices,
-		})
-		if err != nil {
-			return nil, err
-		}
-		nextEpochAttesterDuties, err := r.ethValidatorClient.GetAttesterDuties(ctx, &ethpbv1.AttesterDutiesRequest{
-			Epoch: epoch.Add(1),
-			Index: indices,
-		})
-		if err != nil {
-			return nil, err
-		}
-		nextEpochProposerDuties, err := r.ethValidatorClient.GetProposerDuties(ctx, &ethpbv1.ProposerDutiesRequest{Epoch: epoch.Add(1)})
-		if err != nil {
-			return nil, err
-		}
-		nextEpochSyncCommitteeDuties, err := r.ethValidatorClient.GetSyncCommitteeDuties(ctx, &ethpbv2.SyncCommitteeDutiesRequest{
-			Epoch: epoch.Add(1),
-			Index: indices,
-		})
-		if err != nil {
-			return nil, err
-		}
-	}
+		// TODO: What about things like:
+		// https://github.com/prysmaticlabs/prysm/blob/52d8a1646fb49ab4680e55040103926dddee7a67/beacon-chain/rpc/prysm/v1alpha1/validator/assignments.go#L204
 
-	return &duties, nil
+		vals, err := r.EthBeaconChainClient.ListValidators(ctx, &ethpbv1.StateValidatorsRequest{StateId: []byte("head"), Id: publicKeys})
+		if err != nil {
+			return nil, err
+		}
+		if vals == nil || len(vals.Data) == 0 {
+			// TODO: What to do? Return empty duties without error?
+		}
+		indices := make([]eth2types.ValidatorIndex, len(vals.Data))
+		for i, v := range vals.Data {
+			indices[i] = v.Index
+		}
+
+		currEpochAttesterDuties, err := r.EthValidatorClient.GetAttesterDuties(ctx, &ethpbv1.AttesterDutiesRequest{
+			Epoch: epoch,
+			Index: indices,
+		})
+		if err != nil {
+			return nil, err
+		}
+		currEpochProposerDuties, err := r.EthValidatorClient.GetProposerDuties(ctx, &ethpbv1.ProposerDutiesRequest{Epoch: epoch})
+		if err != nil {
+			return nil, err
+		}
+		currEpochSyncCommitteeDuties, err := r.EthValidatorClient.GetSyncCommitteeDuties(ctx, &ethpbv2.SyncCommitteeDutiesRequest{
+			Epoch: epoch,
+			Index: indices,
+		})
+		if err != nil {
+			return nil, err
+		}
+		nextEpochAttesterDuties, err := r.EthValidatorClient.GetAttesterDuties(ctx, &ethpbv1.AttesterDutiesRequest{
+			Epoch: epoch.Add(1),
+			Index: indices,
+		})
+		if err != nil {
+			return nil, err
+		}
+		nextEpochProposerDuties, err := r.EthValidatorClient.GetProposerDuties(ctx, &ethpbv1.ProposerDutiesRequest{Epoch: epoch.Add(1)})
+		if err != nil {
+			return nil, err
+		}
+		nextEpochSyncCommitteeDuties, err := r.EthValidatorClient.GetSyncCommitteeDuties(ctx, &ethpbv2.SyncCommitteeDutiesRequest{
+			Epoch: epoch.Add(1),
+			Index: indices,
+		})
+		if err != nil {
+			return nil, err
+		}
+		currEpochCommmittees, err := r.EthBeaconChainClient.ListCommittees(ctx, &ethpbv1.StateCommitteesRequest{
+			StateId: []byte("head"),
+			Epoch:   &epoch,
+		})
+		if err != nil {
+			return nil, err
+		}
+		nextEpoch := epoch.Add(1)
+		nextEpochCommmittees, err := r.EthBeaconChainClient.ListCommittees(ctx, &ethpbv1.StateCommitteesRequest{
+			StateId: []byte("head"),
+			Epoch:   &nextEpoch,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		return r.convertEthDutiesResponse(
+			vals.Data,
+			currEpochAttesterDuties,
+			nextEpochAttesterDuties,
+			currEpochProposerDuties,
+			nextEpochProposerDuties,
+			currEpochSyncCommitteeDuties,
+			nextEpochSyncCommitteeDuties,
+			currEpochCommmittees.Data,
+			nextEpochCommmittees.Data,
+		)
+	}
 }

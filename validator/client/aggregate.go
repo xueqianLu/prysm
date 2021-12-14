@@ -14,6 +14,7 @@ import (
 	validatorpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1/validator-client"
 	prysmTime "github.com/prysmaticlabs/prysm/time"
 	"github.com/prysmaticlabs/prysm/time/slots"
+	"github.com/prysmaticlabs/prysm/validator/client/relay"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -194,7 +195,7 @@ func (v *validator) aggregateAndProofSig(ctx context.Context, pubKey [48]byte, a
 	return sig.Marshal(), nil
 }
 
-func (v *validator) addIndicesToLog(duty *ethpb.DutiesResponse_Duty) error {
+func (v *validator) addIndicesToLog(duty *relay.Duty) error {
 	v.attLogsLock.Lock()
 	defer v.attLogsLock.Unlock()
 

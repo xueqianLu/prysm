@@ -54,7 +54,7 @@ var (
 )
 
 type validator struct {
-	relayer                            relay.Relayer
+	relayer                            *relay.Relayer
 	logValidatorBalances               bool
 	useWeb                             bool
 	emitAccountMetrics                 bool
@@ -72,7 +72,7 @@ type validator struct {
 	aggregatedSlotCommitteeIDCache     *lru.Cache
 	ticker                             slots.Ticker
 	prevBalance                        map[[48]byte]uint64
-	duties                             *ethpb.DutiesResponse
+	duties                             *relay.Duties
 	startBalances                      map[[48]byte]uint64
 	attLogs                            map[[32]byte]*attSubmitted
 	node                               ethpb.NodeClient
@@ -488,13 +488,8 @@ func (v *validator) UpdateDuties(ctx context.Context, slot types.Slot) error {
 	}
 	v.slashableKeysLock.RUnlock()
 
-	req := &ethpb.DutiesRequest{
-		Epoch:      types.Epoch(slot / params.BeaconConfig().SlotsPerEpoch),
-		PublicKeys: bytesutil.FromBytes48Array(filteredKeys),
-	}
-
 	// If duties is nil it means we have had no prior duties and just started up.
-	resp, err := v.validatorClient.GetDuties(ctx, req)
+	resp, err := v.relayer.GetDuties(ctx, types.Epoch(slot/params.BeaconConfig().SlotsPerEpoch), bytesutil.FromBytes48Array(filteredKeys))
 	if err != nil {
 		v.duties = nil // Clear assignments so we know to retry the request.
 		log.Error(err)
@@ -516,7 +511,7 @@ func (v *validator) UpdateDuties(ctx context.Context, slot types.Slot) error {
 
 // subscribeToSubnets iterates through each validator duty, signs each slot, and asks beacon node
 // to eagerly subscribe to subnets so that the aggregator has attestations to aggregate.
-func (v *validator) subscribeToSubnets(ctx context.Context, res *ethpb.DutiesResponse) error {
+func (v *validator) subscribeToSubnets(ctx context.Context, res *relay.Duties) error {
 	subscribeSlots := make([]types.Slot, 0, len(res.CurrentEpochDuties)+len(res.NextEpochDuties))
 	subscribeCommitteeIndices := make([]types.CommitteeIndex, 0, len(res.CurrentEpochDuties)+len(res.NextEpochDuties))
 	subscribeIsAggregator := make([]bool, 0, len(res.CurrentEpochDuties)+len(res.NextEpochDuties))
@@ -524,7 +519,7 @@ func (v *validator) subscribeToSubnets(ctx context.Context, res *ethpb.DutiesRes
 
 	for _, duty := range res.CurrentEpochDuties {
 		pk := bytesutil.ToBytes48(duty.PublicKey)
-		if duty.Status == ethpb.ValidatorStatus_ACTIVE || duty.Status == ethpb.ValidatorStatus_EXITING {
+		if duty.Status == relay.ValidatorStatus_Active || duty.Status == relay.ValidatorStatus_Exiting {
 			attesterSlot := duty.AttesterSlot
 			committeeIndex := duty.CommitteeIndex
 
@@ -548,7 +543,7 @@ func (v *validator) subscribeToSubnets(ctx context.Context, res *ethpb.DutiesRes
 	}
 
 	for _, duty := range res.NextEpochDuties {
-		if duty.Status == ethpb.ValidatorStatus_ACTIVE || duty.Status == ethpb.ValidatorStatus_EXITING {
+		if duty.Status == relay.ValidatorStatus_Active || duty.Status == relay.ValidatorStatus_Exiting {
 			attesterSlot := duty.AttesterSlot
 			committeeIndex := duty.CommitteeIndex
 
@@ -585,7 +580,7 @@ func (v *validator) subscribeToSubnets(ctx context.Context, res *ethpb.DutiesRes
 // validator assignments are unknown. Otherwise returns a valid ValidatorRole map.
 func (v *validator) RolesAt(ctx context.Context, slot types.Slot) (map[[48]byte][]iface.ValidatorRole, error) {
 	rolesAt := make(map[[48]byte][]iface.ValidatorRole)
-	for validator, duty := range v.duties.Duties {
+	for validator, duty := range append(v.duties.CurrentEpochDuties, v.duties.NextEpochDuties...) {
 		var roles []iface.ValidatorRole
 
 		if duty == nil {
@@ -782,7 +777,7 @@ func (v *validator) domainData(ctx context.Context, epoch types.Epoch, domain []
 	return res, nil
 }
 
-func (v *validator) logDuties(slot types.Slot, duties []*ethpb.DutiesResponse_Duty) {
+func (v *validator) logDuties(slot types.Slot, duties []*relay.Duty) {
 	attesterKeys := make([][]string, params.BeaconConfig().SlotsPerEpoch)
 	for i := range attesterKeys {
 		attesterKeys[i] = make([]string, 0)
@@ -798,7 +793,7 @@ func (v *validator) logDuties(slot types.Slot, duties []*ethpb.DutiesResponse_Du
 
 		// Only interested in validators who are attesting/proposing.
 		// Note that SLASHING validators will have duties but their results are ignored by the network so we don't bother with them.
-		if duty.Status != ethpb.ValidatorStatus_ACTIVE && duty.Status != ethpb.ValidatorStatus_EXITING {
+		if duty.Status != relay.ValidatorStatus_Active && duty.Status != relay.ValidatorStatus_Exiting {
 			continue
 		}
 

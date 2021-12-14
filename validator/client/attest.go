@@ -23,6 +23,7 @@ import (
 	prysmTime "github.com/prysmaticlabs/prysm/time"
 	"github.com/prysmaticlabs/prysm/time/slots"
 	"github.com/prysmaticlabs/prysm/validator/client/iface"
+	"github.com/prysmaticlabs/prysm/validator/client/relay"
 	"github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
 )
@@ -180,12 +181,12 @@ func (v *validator) SubmitAttestation(ctx context.Context, slot types.Slot, pubK
 }
 
 // Given the validator public key, this gets the validator assignment.
-func (v *validator) duty(pubKey [48]byte) (*ethpb.DutiesResponse_Duty, error) {
+func (v *validator) duty(pubKey [48]byte) (*relay.Duty, error) {
 	if v.duties == nil {
 		return nil, errors.New("no duties for validators")
 	}
 
-	for _, duty := range v.duties.Duties {
+	for _, duty := range append(v.duties.CurrentEpochDuties, v.duties.NextEpochDuties...) {
 		if bytes.Equal(pubKey[:], duty.PublicKey) {
 			return duty, nil
 		}
