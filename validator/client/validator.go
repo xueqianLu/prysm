@@ -580,7 +580,7 @@ func (v *validator) subscribeToSubnets(ctx context.Context, res *relay.Duties) e
 // validator assignments are unknown. Otherwise returns a valid ValidatorRole map.
 func (v *validator) RolesAt(ctx context.Context, slot types.Slot) (map[[48]byte][]iface.ValidatorRole, error) {
 	rolesAt := make(map[[48]byte][]iface.ValidatorRole)
-	for validator, duty := range append(v.duties.CurrentEpochDuties, v.duties.NextEpochDuties...) {
+	for validator, duty := range v.duties.CurrentEpochDuties {
 		var roles []iface.ValidatorRole
 
 		if duty == nil {

@@ -186,7 +186,7 @@ func (v *validator) duty(pubKey [48]byte) (*relay.Duty, error) {
 		return nil, errors.New("no duties for validators")
 	}
 
-	for _, duty := range append(v.duties.CurrentEpochDuties, v.duties.NextEpochDuties...) {
+	for _, duty := range v.duties.CurrentEpochDuties {
 		if bytes.Equal(pubKey[:], duty.PublicKey) {
 			return duty, nil
 		}
