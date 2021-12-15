@@ -172,7 +172,7 @@ func (v *ValidatorService) Start() {
 		return
 	}
 
-	relayer := relay.New(relay.Prysm)
+	relayer := relay.New(relay.Eth)
 	relayer.PrysmValidatorClient = ethpb.NewBeaconNodeValidatorClient(v.conn)
 	relayer.EthBeaconChainClient = service.NewBeaconChainClient(v.conn)
 	relayer.EthValidatorClient = service.NewBeaconValidatorClient(v.conn)
