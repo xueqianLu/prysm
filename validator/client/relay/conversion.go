@@ -88,9 +88,22 @@ func (r *Relayer) convertEthDutiesResponse(
 
 		if hasCurrentDuty {
 			var attSlot types.Slot
+			committee := make([]types.ValidatorIndex, 0)
+			var committeeIndex types.CommitteeIndex
 			attDuty, ok := currEpochAttesterMap[idx]
 			if ok {
 				attSlot = attDuty.Slot
+
+			currEpoch:
+				for _, c := range currEpochCommmittees {
+					for _, idx := range c.Validators {
+						if idx == types.ValidatorIndex(i) {
+							committee = c.Validators
+							committeeIndex = c.Index
+							break currEpoch
+						}
+					}
+				}
 			}
 
 			proposerSlots := make([]types.Slot, 0)
@@ -98,19 +111,6 @@ func (r *Relayer) convertEthDutiesResponse(
 			if ok {
 				for _, d := range proposerDuties {
 					proposerSlots = append(proposerSlots, d.Slot)
-				}
-			}
-
-			var committee []types.ValidatorIndex
-			var committeeIndex types.CommitteeIndex
-		currEpoch:
-			for _, c := range currEpochCommmittees {
-				for _, idx := range c.Validators {
-					if idx == types.ValidatorIndex(i) {
-						committee = c.Validators
-						committeeIndex = c.Index
-						break currEpoch
-					}
 				}
 			}
 
@@ -134,20 +134,20 @@ func (r *Relayer) convertEthDutiesResponse(
 		}
 		if hasNextDuty {
 			var attSlot types.Slot
+			committee := make([]types.ValidatorIndex, 0)
+			var committeeIndex types.CommitteeIndex
 			attDuty, ok := nextEpochAttesterMap[idx]
 			if ok {
 				attSlot = attDuty.Slot
-			}
 
-			var committee []types.ValidatorIndex
-			var committeeIndex types.CommitteeIndex
-		nextEpoch:
-			for _, c := range nextEpochCommmittees {
-				for _, idx := range c.Validators {
-					if idx == types.ValidatorIndex(i) {
-						committee = c.Validators
-						committeeIndex = c.Index
-						break nextEpoch
+			nextEpoch:
+				for _, c := range nextEpochCommmittees {
+					for _, idx := range c.Validators {
+						if idx == types.ValidatorIndex(i) {
+							committee = c.Validators
+							committeeIndex = c.Index
+							break nextEpoch
+						}
 					}
 				}
 			}
