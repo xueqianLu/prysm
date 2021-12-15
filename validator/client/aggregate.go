@@ -14,7 +14,7 @@ import (
 	validatorpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1/validator-client"
 	prysmTime "github.com/prysmaticlabs/prysm/time"
 	"github.com/prysmaticlabs/prysm/time/slots"
-	"github.com/prysmaticlabs/prysm/validator/client/relay"
+	relay "github.com/prysmaticlabs/prysm/validator/client/apirelay"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

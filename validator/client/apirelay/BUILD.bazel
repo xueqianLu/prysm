@@ -7,7 +7,7 @@ go_library(
         "relayer.go",
         "types.go",
     ],
-    importpath = "github.com/prysmaticlabs/prysm/validator/client/relay",
+    importpath = "github.com/prysmaticlabs/prysm/validator/client/apirelay",
     visibility = ["//visibility:public"],
     deps = [
         "//proto/eth/service:go_default_library",

@@ -22,8 +22,8 @@ import (
 	validatorpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1/validator-client"
 	prysmTime "github.com/prysmaticlabs/prysm/time"
 	"github.com/prysmaticlabs/prysm/time/slots"
+	relay "github.com/prysmaticlabs/prysm/validator/client/apirelay"
 	"github.com/prysmaticlabs/prysm/validator/client/iface"
-	"github.com/prysmaticlabs/prysm/validator/client/relay"
 	"github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
 )
