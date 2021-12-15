@@ -96,8 +96,8 @@ func (r *Relayer) convertEthDutiesResponse(
 
 			currEpoch:
 				for _, c := range currEpochCommmittees {
-					for _, idx := range c.Validators {
-						if idx == types.ValidatorIndex(i) {
+					for _, vi := range c.Validators {
+						if vi == idx {
 							committee = c.Validators
 							committeeIndex = c.Index
 							break currEpoch
@@ -142,8 +142,8 @@ func (r *Relayer) convertEthDutiesResponse(
 
 			nextEpoch:
 				for _, c := range nextEpochCommmittees {
-					for _, idx := range c.Validators {
-						if idx == types.ValidatorIndex(i) {
+					for _, vi := range c.Validators {
+						if vi == idx {
 							committee = c.Validators
 							committeeIndex = c.Index
 							break nextEpoch
