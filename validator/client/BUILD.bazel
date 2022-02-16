@@ -102,6 +102,7 @@ go_test(
         "@eip3076_spec_tests//:test_data",
     ],
     embed = [":go_default_library"],
+    tags = ["no-remote-exec"],
     deps = [
         "//async/event:go_default_library",
         "//beacon-chain/core/signing:go_default_library",
