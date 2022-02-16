@@ -28,6 +28,7 @@ go_test(
         "manual",
         "minimal",
         "requires-network",
+        "no-remote-exec",
     ],
     deps = [
         "//beacon-chain/blockchain/testing:go_default_library",
@@ -81,6 +82,7 @@ go_test(
         "manual",
         "multiclient",
         "requires-network",
+        "no-remote-exec",
     ],
     deps = [
         "//beacon-chain/blockchain/testing:go_default_library",

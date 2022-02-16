@@ -160,6 +160,7 @@ go_test(
         "validate_voluntary_exit_test.go",
     ],
     embed = [":go_default_library"],
+    tags = ["no-remote-exec"],
     shard_count = 4,
     deps = [
         "//async/abool:go_default_library",

@@ -60,4 +60,5 @@ go_test(
         "//testing/endtoend/params:go_default_library",
         "//testing/require:go_default_library",
     ],
+    tags = ["no-remote-exec"],
 )

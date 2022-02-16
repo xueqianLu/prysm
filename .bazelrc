@@ -217,3 +217,12 @@ build:remote --remote_local_fallback
 
 # Ignore GoStdLib with remote caching
 build --modify_execution_info='GoStdlib.*=+no-remote-cache'
+
+# Buildbuddy config and platform
+build:buildbuddy --build_metadata=REPO_URL=https://github.com/prysmaticlabs/prysm.git
+build:buildbuddy --host_platform=@buildbuddy_toolchain//:platform
+build:buildbuddy --platforms=@buildbuddy_toolchain//:platform
+build:buildbuddy --extra_execution_platforms=@buildbuddy_toolchain//:platform
+build:buildbuddy --crosstool_top=@buildbuddy_toolchain//:toolchain
+build:buildbuddy --extra_toolchains=@buildbuddy_toolchain//:cc_toolchain
+
