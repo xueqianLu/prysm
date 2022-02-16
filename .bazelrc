@@ -225,4 +225,6 @@ build:buildbuddy --platforms=@buildbuddy_toolchain//:platform
 build:buildbuddy --extra_execution_platforms=@buildbuddy_toolchain//:platform
 build:buildbuddy --crosstool_top=@buildbuddy_toolchain//:toolchain
 build:buildbuddy --extra_toolchains=@buildbuddy_toolchain//:cc_toolchain
+build:buildbuddy --workspace_status_command=./hack/workspace_status_ci.sh
+test:buildbuddy --nostamp
 

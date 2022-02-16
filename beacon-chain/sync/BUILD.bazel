@@ -160,8 +160,8 @@ go_test(
         "validate_voluntary_exit_test.go",
     ],
     embed = [":go_default_library"],
-    tags = ["no-remote-exec"],
     shard_count = 4,
+    tags = ["no-remote-exec"],
     deps = [
         "//async/abool:go_default_library",
         "//beacon-chain/blockchain:go_default_library",

@@ -116,6 +116,7 @@ go_test(
     ],
     embed = [":go_default_library"],
     gotags = ["develop"],
+    tags = ["no-remote-exec"],
     deps = [
         "//async/event:go_default_library",
         "//beacon-chain/blockchain/testing:go_default_library",
