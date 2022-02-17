@@ -7,6 +7,7 @@ pkg_tar(
     ],
     mode = "0755",
     package_dir = "/usr/bin",
+    tags = ["no-remote"],
 )
 
 pkg_tar(
@@ -14,6 +15,7 @@ pkg_tar(
     srcs = glob(["beacon-chain.yaml"]),
     mode = "0640",
     package_dir = "/etc/prysm",
+    tags = ["no-remote"],
 )
 
 pkg_tar(
@@ -21,11 +23,13 @@ pkg_tar(
     srcs = glob(["prysm-beacon-chain.service"]),
     mode = "0640",
     package_dir = "/usr/lib/systemd/system",
+    tags = ["no-remote"],
 )
 
 pkg_tar(
     name = "debian-data",
     extension = "tar.gz",
+    tags = ["no-remote"],
     deps = [
         ":beacon-chain-bin",
         ":beacon-chain-config",
@@ -46,6 +50,7 @@ pkg_deb(
     package = "prysm-beacon-chain",
     postinst = "postinst.sh",
     preinst = "preinst.sh",
+    tags = ["no-remote"],
     version_file = "//runtime:version_file",
     visibility = ["//beacon-chain:__pkg__"],
 )
