@@ -225,6 +225,12 @@ build:buildbuddy --platforms=@buildbuddy_toolchain//:platform
 build:buildbuddy --extra_execution_platforms=@buildbuddy_toolchain//:platform
 build:buildbuddy --crosstool_top=@buildbuddy_toolchain//:toolchain
 build:buildbuddy --extra_toolchains=@buildbuddy_toolchain//:cc_toolchain
+build:buildbuddy --javabase=@buildbuddy_toolchain//:javabase_jdk8
+build:buildbuddy --host_javabase=@buildbuddy_toolchain//:javabase_jdk8
+build:buildbuddy --java_toolchain=@buildbuddy_toolchain//:toolchain_jdk8
+build:buildbuddy --host_java_toolchain=@buildbuddy_toolchain//:toolchain_jdk8
 build:buildbuddy --workspace_status_command=./hack/workspace_status_ci.sh
+build:buildbuddy --action_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
+build:buildbuddy --experimental_allow_tags_propagation
 test:buildbuddy --nostamp
 

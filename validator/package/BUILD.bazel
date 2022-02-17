@@ -7,6 +7,7 @@ pkg_tar(
     ],
     mode = "0755",
     package_dir = "/usr/bin",
+    tags = ["no-remote"],
 )
 
 pkg_tar(
@@ -14,6 +15,7 @@ pkg_tar(
     srcs = glob(["validator.yaml"]),
     mode = "0640",
     package_dir = "/etc/prysm",
+    tags = ["no-remote"],
 )
 
 pkg_tar(
@@ -21,11 +23,13 @@ pkg_tar(
     srcs = glob(["prysm-validator.service"]),
     mode = "0640",
     package_dir = "/usr/lib/systemd/system",
+    tags = ["no-remote"],
 )
 
 pkg_tar(
     name = "debian-data",
     extension = "tar.gz",
+    tags = ["no-remote"],
     deps = [
         ":validator-bin",
         ":validator-config",
