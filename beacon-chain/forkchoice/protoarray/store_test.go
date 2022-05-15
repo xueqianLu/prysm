@@ -818,3 +818,47 @@ func TestStore_RemoveEquivocating(t *testing.T) {
 	f.InsertSlashedIndex(ctx, types.ValidatorIndex(len(f.votes)))
 	require.Equal(t, true, len(f.store.slashedIndices) > 0)
 }
+
+func TestStore_LongFork(t *testing.T) {
+	ctx := context.Background()
+	f := setup(1, 1)
+
+	// insert last block from epoch 1
+	require.NoError(t, f.InsertOptimisticBlock(ctx, 63, indexToHash(63), params.BeaconConfig().ZeroHash, indexToHash(320+63), 1, 1))
+
+	i := uint64(64)
+	// Insert blocks from the finalized epoch 2 (finalized = 1, justified = 1)
+	for ; i < 96; i++ {
+		require.NoError(t, f.InsertOptimisticBlock(ctx, types.Slot(i), indexToHash(i), indexToHash(i-1), indexToHash(i+320), 1, 1))
+	}
+	// Insert blocks from the justified epoch 3 (finalized = 1, justified 2)
+	for ; i < 128; i++ {
+		require.NoError(t, f.InsertOptimisticBlock(ctx, types.Slot(i), indexToHash(i), indexToHash(i-1), indexToHash(i+320), 2, 1))
+	}
+	// Start a fork, we simplify here and assume to be a long fork with
+	// separate shufflings. Both forks go without justifying for 2 epochs
+	// Start with the initial blocks
+	require.NoError(t, f.InsertOptimisticBlock(ctx, types.Slot(i), indexToHash(i), indexToHash(i-1), indexToHash(i+320), 3, 2))
+	require.NoError(t, f.InsertOptimisticBlock(ctx, types.Slot(i), indexToHash(i+1024), indexToHash(i-1), indexToHash(i+1024+320), 3, 2))
+	i++
+	// The remaining blocks for epochs 4 and 5
+	for ; i < 192; i++ {
+		require.NoError(t, f.InsertOptimisticBlock(ctx, types.Slot(i), indexToHash(i), indexToHash(i-1), indexToHash(i+320), 3, 2))
+		require.NoError(t, f.InsertOptimisticBlock(ctx, types.Slot(i), indexToHash(i+1024), indexToHash(i+1023), indexToHash(i+1024+320), 3, 2))
+	}
+	// At the end beginning of epoch 6, the first fork has justified 5
+	require.NoError(t, f.InsertOptimisticBlock(ctx, types.Slot(i), indexToHash(i), indexToHash(i-1), indexToHash(i+320), 5, 2))
+	headRoot, err := f.Head(ctx, 5, indexToHash(192), []uint64{}, 2)
+	require.NoError(t, err)
+	require.Equal(t, indexToHash(192), headRoot)
+	// The second fork has not justified it
+	require.NoError(t, f.InsertOptimisticBlock(ctx, types.Slot(i), indexToHash(i+1024), indexToHash(i+1023), indexToHash(i+1024+320), 3, 2))
+	// If we request head with justified = 3, finalized = 2 we get the second fork:
+	headRoot, err = f.Head(ctx, 3, indexToHash(96), []uint64{}, 2)
+	require.NoError(t, err)
+	require.Equal(t, indexToHash(192+1024), headRoot)
+	// If we request head with justified = 5, finalized = 2 we get the first fork:
+	headRoot, err = f.Head(ctx, 5, indexToHash(192), []uint64{}, 2)
+	require.NoError(t, err)
+	require.Equal(t, indexToHash(192), headRoot)
+}
