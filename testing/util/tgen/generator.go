@@ -82,6 +82,7 @@ type byteSlices struct {
 	B256 []byte
 }
 
+// BlockFields is a collection of all fields that make up a block
 type BlockFields struct {
 	byteSlices
 	Slot              types.Slot
@@ -96,6 +97,7 @@ type BlockFields struct {
 	ExecPayloadHeader *eth.ExecutionPayloadHeader
 }
 
+// GetBlockFields returns an instance of BlockFields with generated values
 func GetBlockFields() BlockFields {
 	deposits := make([]*eth.Deposit, 16)
 	for i := range deposits {
@@ -257,6 +259,7 @@ func GetBlockFields() BlockFields {
 	}
 }
 
+// PbSignedBeaconBlockPhase0 generates a SignedBeaconBlock
 func PbSignedBeaconBlockPhase0() *eth.SignedBeaconBlock {
 	f := GetBlockFields()
 	return &eth.SignedBeaconBlock{
@@ -265,6 +268,7 @@ func PbSignedBeaconBlockPhase0() *eth.SignedBeaconBlock {
 	}
 }
 
+// PbSignedBeaconBlockAltair generates a SignedBeaconBlockAltair
 func PbSignedBeaconBlockAltair() *eth.SignedBeaconBlockAltair {
 	f := GetBlockFields()
 	return &eth.SignedBeaconBlockAltair{
@@ -273,6 +277,7 @@ func PbSignedBeaconBlockAltair() *eth.SignedBeaconBlockAltair {
 	}
 }
 
+// PbSignedBeaconBlockBellatrix generates a SignedBeaconBlockBellatrix
 func PbSignedBeaconBlockBellatrix() *eth.SignedBeaconBlockBellatrix {
 	f := GetBlockFields()
 	return &eth.SignedBeaconBlockBellatrix{
@@ -281,6 +286,7 @@ func PbSignedBeaconBlockBellatrix() *eth.SignedBeaconBlockBellatrix {
 	}
 }
 
+// PbSignedBlindedBeaconBlockBellatrix generates a SignedBlindedBeaconBlockBellatrix
 func PbSignedBlindedBeaconBlockBellatrix() *eth.SignedBlindedBeaconBlockBellatrix {
 	f := GetBlockFields()
 	return &eth.SignedBlindedBeaconBlockBellatrix{
@@ -289,6 +295,7 @@ func PbSignedBlindedBeaconBlockBellatrix() *eth.SignedBlindedBeaconBlockBellatri
 	}
 }
 
+// PbBeaconBlockPhase0 generates a BeaconBlock
 func PbBeaconBlockPhase0() *eth.BeaconBlock {
 	f := GetBlockFields()
 	return &eth.BeaconBlock{
@@ -300,6 +307,7 @@ func PbBeaconBlockPhase0() *eth.BeaconBlock {
 	}
 }
 
+// PbBeaconBlockAltair generates a BeaconBlockAltair
 func PbBeaconBlockAltair() *eth.BeaconBlockAltair {
 	f := GetBlockFields()
 	return &eth.BeaconBlockAltair{
@@ -311,6 +319,7 @@ func PbBeaconBlockAltair() *eth.BeaconBlockAltair {
 	}
 }
 
+// PbBeaconBlockBellatrix generates a BeaconBlockBellatrix
 func PbBeaconBlockBellatrix() *eth.BeaconBlockBellatrix {
 	f := GetBlockFields()
 	return &eth.BeaconBlockBellatrix{
@@ -322,6 +331,7 @@ func PbBeaconBlockBellatrix() *eth.BeaconBlockBellatrix {
 	}
 }
 
+// PbBlindedBeaconBlockBellatrix generates a BlindedBeaconBlockBellatrix
 func PbBlindedBeaconBlockBellatrix() *eth.BlindedBeaconBlockBellatrix {
 	f := GetBlockFields()
 	return &eth.BlindedBeaconBlockBellatrix{
@@ -333,6 +343,7 @@ func PbBlindedBeaconBlockBellatrix() *eth.BlindedBeaconBlockBellatrix {
 	}
 }
 
+// PbBeaconBlockBodyPhase0 generates a BeaconBlockBody
 func PbBeaconBlockBodyPhase0() *eth.BeaconBlockBody {
 	f := GetBlockFields()
 	return &eth.BeaconBlockBody{
@@ -351,6 +362,7 @@ func PbBeaconBlockBodyPhase0() *eth.BeaconBlockBody {
 	}
 }
 
+// PbBeaconBlockBodyAltair generates a BeaconBlockBodyAltair
 func PbBeaconBlockBodyAltair() *eth.BeaconBlockBodyAltair {
 	f := GetBlockFields()
 	return &eth.BeaconBlockBodyAltair{
@@ -370,6 +382,7 @@ func PbBeaconBlockBodyAltair() *eth.BeaconBlockBodyAltair {
 	}
 }
 
+// PbBeaconBlockBodyBellatrix generates a BeaconBlockBodyBellatrix
 func PbBeaconBlockBodyBellatrix() *eth.BeaconBlockBodyBellatrix {
 	f := GetBlockFields()
 	return &eth.BeaconBlockBodyBellatrix{
@@ -390,6 +403,7 @@ func PbBeaconBlockBodyBellatrix() *eth.BeaconBlockBodyBellatrix {
 	}
 }
 
+// PbBlindedBeaconBlockBodyBellatrix generates a BlindedBeaconBlockBodyBellatrix
 func PbBlindedBeaconBlockBodyBellatrix() *eth.BlindedBeaconBlockBodyBellatrix {
 	f := GetBlockFields()
 	return &eth.BlindedBeaconBlockBodyBellatrix{
