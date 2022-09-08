@@ -1,12 +1,41 @@
 package apimiddleware
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"strings"
 
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/prysmaticlabs/prysm/v3/api/gateway/apimiddleware"
 	"github.com/prysmaticlabs/prysm/v3/beacon-chain/rpc/eth/helpers"
 	ethpbv2 "github.com/prysmaticlabs/prysm/v3/proto/eth/v2"
+	"github.com/wealdtech/go-bytesutil"
 )
+
+type HexBytes []byte
+
+func (b HexBytes) MarshalJSON() ([]byte, error) {
+	return json.Marshal(hexutil.Encode(b))
+}
+
+func (b *HexBytes) UnmarshalJSON(enc []byte) error {
+	if len(enc) == 0 {
+		*b = make([]byte, 0)
+		return nil
+	}
+	var hexString string
+	if err := json.Unmarshal(enc, &hexString); err != nil {
+		return err
+	}
+	bHex, err := bytesutil.FromHexString(hexString)
+	if err != nil {
+		return err
+	}
+	dst := make([]byte, base64.StdEncoding.EncodedLen(len(bHex)))
+	base64.StdEncoding.Encode(dst, bHex)
+	*b = dst
+	return nil
+}
 
 //----------------
 // Requests and responses.
@@ -17,9 +46,9 @@ type genesisResponseJson struct {
 }
 
 type genesisResponse_GenesisJson struct {
-	GenesisTime           string `json:"genesis_time" time:"true"`
-	GenesisValidatorsRoot string `json:"genesis_validators_root" hex:"true"`
-	GenesisForkVersion    string `json:"genesis_fork_version" hex:"true"`
+	GenesisTime           string   `json:"genesis_time" time:"true"`
+	GenesisValidatorsRoot HexBytes `json:"genesis_validators_root" hex:"true"`
+	GenesisForkVersion    string   `json:"genesis_fork_version" hex:"true"`
 }
 
 // WeakSubjectivityResponse is used to marshal/unmarshal the response for the
@@ -778,11 +807,11 @@ type contributionAndProofJson struct {
 }
 
 type syncCommitteeContributionJson struct {
-	Slot              string `json:"slot"`
-	BeaconBlockRoot   string `json:"beacon_block_root" hex:"true"`
-	SubcommitteeIndex string `json:"subcommittee_index"`
-	AggregationBits   string `json:"aggregation_bits" hex:"true"`
-	Signature         string `json:"signature" hex:"true"`
+	Slot              string   `json:"slot"`
+	BeaconBlockRoot   HexBytes `json:"beacon_block_root" hex:"true"`
+	SubcommitteeIndex string   `json:"subcommittee_index"`
+	AggregationBits   string   `json:"aggregation_bits" hex:"true"`
+	Signature         string   `json:"signature" hex:"true"`
 }
 
 type validatorRegistrationJson struct {
