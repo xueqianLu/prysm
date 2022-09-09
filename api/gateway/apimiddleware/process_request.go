@@ -148,10 +148,6 @@ func DeserializeGrpcResponseBodyIntoContainer(body []byte, responseContainer int
 func ProcessMiddlewareResponseFields(responseContainer interface{}) ErrorJson {
 	if err := processField(responseContainer, []fieldProcessor{
 		{
-			tag: "hex",
-			f:   base64ToHexProcessor,
-		},
-		{
 			tag: "address",
 			f:   base64ToChecksumAddressProcessor,
 		},

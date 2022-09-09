@@ -8,32 +8,36 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/prysmaticlabs/prysm/v3/api/gateway/apimiddleware"
 	"github.com/prysmaticlabs/prysm/v3/beacon-chain/rpc/eth/helpers"
+	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
 	ethpbv2 "github.com/prysmaticlabs/prysm/v3/proto/eth/v2"
-	"github.com/wealdtech/go-bytesutil"
 )
 
-type HexBytes []byte
+type HexString string
 
-func (b HexBytes) MarshalJSON() ([]byte, error) {
-	return json.Marshal(hexutil.Encode(b))
-}
-
-func (b *HexBytes) UnmarshalJSON(enc []byte) error {
+func (b *HexString) UnmarshalJSON(enc []byte) error {
 	if len(enc) == 0 {
-		*b = make([]byte, 0)
+		// Empty hex values are represented as "0x".
+		*b = "0x"
 		return nil
 	}
-	var hexString string
-	if err := json.Unmarshal(enc, &hexString); err != nil {
+	var s string
+	if err := json.Unmarshal(enc, &s); err != nil {
 		return err
 	}
-	bHex, err := bytesutil.FromHexString(hexString)
+	if bytesutil.IsHex([]byte(s)) {
+		*b = HexString(s)
+		return nil
+	}
+	if s == "" {
+		// Empty hex values are represented as "0x".
+		*b = "0x"
+		return nil
+	}
+	bytes, err := base64.StdEncoding.DecodeString(s)
 	if err != nil {
 		return err
 	}
-	dst := make([]byte, base64.StdEncoding.EncodedLen(len(bHex)))
-	base64.StdEncoding.Encode(dst, bHex)
-	*b = dst
+	*b = HexString(hexutil.Encode(bytes))
 	return nil
 }
 
@@ -46,9 +50,9 @@ type genesisResponseJson struct {
 }
 
 type genesisResponse_GenesisJson struct {
-	GenesisTime           string   `json:"genesis_time" time:"true"`
-	GenesisValidatorsRoot HexBytes `json:"genesis_validators_root" hex:"true"`
-	GenesisForkVersion    string   `json:"genesis_fork_version" hex:"true"`
+	GenesisTime           string    `json:"genesis_time" time:"true"`
+	GenesisValidatorsRoot HexString `json:"genesis_validators_root" hex:"true"`
+	GenesisForkVersion    string    `json:"genesis_fork_version" hex:"true"`
 }
 
 // WeakSubjectivityResponse is used to marshal/unmarshal the response for the
@@ -797,21 +801,21 @@ type aggregateAttestationAndProofJson struct {
 
 type signedContributionAndProofJson struct {
 	Message   *contributionAndProofJson `json:"message"`
-	Signature string                    `json:"signature" hex:"true"`
+	Signature HexString                 `json:"signature" hex:"true"`
 }
 
 type contributionAndProofJson struct {
 	AggregatorIndex string                         `json:"aggregator_index"`
 	Contribution    *syncCommitteeContributionJson `json:"contribution"`
-	SelectionProof  string                         `json:"selection_proof" hex:"true"`
+	SelectionProof  HexString                      `json:"selection_proof" hex:"true"`
 }
 
 type syncCommitteeContributionJson struct {
-	Slot              string   `json:"slot"`
-	BeaconBlockRoot   HexBytes `json:"beacon_block_root" hex:"true"`
-	SubcommitteeIndex string   `json:"subcommittee_index"`
-	AggregationBits   string   `json:"aggregation_bits" hex:"true"`
-	Signature         string   `json:"signature" hex:"true"`
+	Slot              string    `json:"slot"`
+	BeaconBlockRoot   HexString `json:"beacon_block_root" hex:"true"`
+	SubcommitteeIndex string    `json:"subcommittee_index"`
+	AggregationBits   HexString `json:"aggregation_bits" hex:"true"`
+	Signature         HexString `json:"signature" hex:"true"`
 }
 
 type validatorRegistrationJson struct {
