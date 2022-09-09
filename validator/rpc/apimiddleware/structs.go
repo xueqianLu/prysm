@@ -1,12 +1,14 @@
 package apimiddleware
 
+import "github.com/prysmaticlabs/prysm/v3/api/gateway/apimiddleware"
+
 type listKeystoresResponseJson struct {
 	Keystores []*keystoreJson `json:"data"`
 }
 
 type keystoreJson struct {
-	ValidatingPubkey string `json:"validating_pubkey" hex:"true"`
-	DerivationPath   string `json:"derivation_path"`
+	ValidatingPubkey apimiddleware.HexString `json:"validating_pubkey"`
+	DerivationPath   string                  `json:"derivation_path"`
 }
 
 type importKeystoresRequestJson struct {
@@ -20,7 +22,7 @@ type importKeystoresResponseJson struct {
 }
 
 type deleteKeystoresRequestJson struct {
-	PublicKeys []string `json:"pubkeys" hex:"true"`
+	PublicKeys []apimiddleware.HexString `json:"pubkeys"`
 }
 
 type statusJson struct {
@@ -40,15 +42,15 @@ type listRemoteKeysResponseJson struct {
 }
 
 type remoteKeysListJson struct {
-	Pubkey   string `json:"pubkey" hex:"true"`
-	Url      string `json:"url"`
-	Readonly bool   `json:"readonly"`
+	Pubkey   apimiddleware.HexString `json:"pubkey"`
+	Url      string                  `json:"url"`
+	Readonly bool                    `json:"readonly"`
 }
 
 type remoteKeysJson struct {
-	Pubkey   string `json:"pubkey" hex:"true"`
-	Url      string `json:"url"`
-	Readonly bool   `json:"readonly"`
+	Pubkey   apimiddleware.HexString `json:"pubkey"`
+	Url      string                  `json:"url"`
+	Readonly bool                    `json:"readonly"`
 }
 
 type importRemoteKeysRequestJson struct {
@@ -60,7 +62,7 @@ type importRemoteKeysResponseJson struct {
 }
 
 type deleteRemoteKeysRequestJson struct {
-	PublicKeys []string `json:"pubkeys" hex:"true"`
+	PublicKeys []apimiddleware.HexString `json:"pubkeys"`
 }
 
 type deleteRemoteKeysResponseJson struct {
@@ -68,13 +70,13 @@ type deleteRemoteKeysResponseJson struct {
 }
 
 type feeRecipientJson struct {
-	Pubkey     string `json:"pubkey" hex:"true"`
-	Ethaddress string `json:"ethaddress" address:"true"`
+	Pubkey     apimiddleware.HexString `json:"pubkey"`
+	Ethaddress string                  `json:"ethaddress" address:"true"`
 }
 
 type gasLimitJson struct {
-	Pubkey   string `json:"pubkey" hex:"true"`
-	GasLimit string `json:"gas_limit"`
+	Pubkey   apimiddleware.HexString `json:"pubkey"`
+	GasLimit string                  `json:"gas_limit"`
 }
 
 type getFeeRecipientByPubkeyResponseJson struct {
@@ -82,7 +84,7 @@ type getFeeRecipientByPubkeyResponseJson struct {
 }
 
 type setFeeRecipientByPubkeyRequestJson struct {
-	Ethaddress string `json:"ethaddress" hex:"true"`
+	Ethaddress apimiddleware.HexString `json:"ethaddress"`
 }
 
 type getGasLimitResponseJson struct {
@@ -94,5 +96,5 @@ type setGasLimitRequestJson struct {
 }
 
 type deleteGasLimitRequestJson struct {
-	Pubkey string `json:"pubkey" hex:"true"`
+	Pubkey apimiddleware.HexString `json:"pubkey"`
 }

@@ -328,11 +328,11 @@ func (c *Client) GetWeakSubjectivity(ctx context.Context) (*WeakSubjectivityData
 	if err != nil {
 		return nil, err
 	}
-	blockRoot, err := hexutil.Decode(v.Data.Checkpoint.Root)
+	blockRoot, err := hexutil.Decode(string(v.Data.Checkpoint.Root))
 	if err != nil {
 		return nil, err
 	}
-	stateRoot, err := hexutil.Decode(v.Data.StateRoot)
+	stateRoot, err := hexutil.Decode(string(v.Data.StateRoot))
 	if err != nil {
 		return nil, err
 	}

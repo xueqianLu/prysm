@@ -1,10 +1,43 @@
 package apimiddleware
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/pkg/errors"
+	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
 )
+
+type HexString string
+
+func (b *HexString) UnmarshalJSON(enc []byte) error {
+	if len(enc) == 0 {
+		// Empty hex values are represented as "0x".
+		*b = "0x"
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(enc, &s); err != nil {
+		return err
+	}
+	if bytesutil.IsHex([]byte(s)) {
+		*b = HexString(s)
+		return nil
+	}
+	if s == "" {
+		// Empty hex values are represented as "0x".
+		*b = "0x"
+		return nil
+	}
+	bytes, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return err
+	}
+	*b = HexString(hexutil.Encode(bytes))
+	return nil
+}
 
 // ---------------
 // Error handling.
