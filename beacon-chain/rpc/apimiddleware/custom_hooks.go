@@ -285,7 +285,7 @@ func preparePublishedBlock(endpoint *apimiddleware.Endpoint, _ http.ResponseWrit
 		// Prepare post request that can be properly decoded on gRPC side.
 		actualPostReq := &phase0PublishBlockRequestJson{
 			Phase0Block: block.Message,
-			Signature:   string(block.Signature),
+			Signature:   block.Signature.Value,
 		}
 		endpoint.PostRequest = actualPostReq
 		return nil
@@ -294,7 +294,7 @@ func preparePublishedBlock(endpoint *apimiddleware.Endpoint, _ http.ResponseWrit
 		// Prepare post request that can be properly decoded on gRPC side.
 		actualPostReq := &altairPublishBlockRequestJson{
 			AltairBlock: block.Message,
-			Signature:   string(block.Signature),
+			Signature:   block.Signature.Value,
 		}
 		endpoint.PostRequest = actualPostReq
 		return nil
@@ -303,7 +303,7 @@ func preparePublishedBlock(endpoint *apimiddleware.Endpoint, _ http.ResponseWrit
 		// Prepare post request that can be properly decoded on gRPC side.
 		actualPostReq := &bellatrixPublishBlockRequestJson{
 			BellatrixBlock: block.Message,
-			Signature:      string(block.Signature),
+			Signature:      block.Signature.Value,
 		}
 		endpoint.PostRequest = actualPostReq
 		return nil
@@ -358,7 +358,7 @@ func preparePublishedBlindedBlock(endpoint *apimiddleware.Endpoint, _ http.Respo
 		// Prepare post request that can be properly decoded on gRPC side.
 		actualPostReq := &phase0PublishBlockRequestJson{
 			Phase0Block: block.Message,
-			Signature:   string(block.Signature),
+			Signature:   block.Signature.Value,
 		}
 		endpoint.PostRequest = actualPostReq
 		return nil
@@ -367,7 +367,7 @@ func preparePublishedBlindedBlock(endpoint *apimiddleware.Endpoint, _ http.Respo
 		// Prepare post request that can be properly decoded on gRPC side.
 		actualPostReq := &altairPublishBlockRequestJson{
 			AltairBlock: block.Message,
-			Signature:   string(block.Signature),
+			Signature:   block.Signature.Value,
 		}
 		endpoint.PostRequest = actualPostReq
 		return nil
@@ -376,7 +376,7 @@ func preparePublishedBlindedBlock(endpoint *apimiddleware.Endpoint, _ http.Respo
 		// Prepare post request that can be properly decoded on gRPC side.
 		actualPostReq := &bellatrixPublishBlindedBlockRequestJson{
 			BellatrixBlock: block.Message,
-			Signature:      string(block.Signature),
+			Signature:      block.Signature.Value,
 		}
 		endpoint.PostRequest = actualPostReq
 		return nil

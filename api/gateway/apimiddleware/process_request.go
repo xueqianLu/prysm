@@ -34,10 +34,6 @@ func DeserializeRequestBodyIntoContainer(body io.Reader, requestContainer interf
 func ProcessRequestContainerFields(requestContainer interface{}) ErrorJson {
 	if err := processField(requestContainer, []fieldProcessor{
 		{
-			tag: "hex",
-			f:   hexToBase64Processor,
-		},
-		{
 			tag: "uint256",
 			f:   uint256ToBase64Processor,
 		},

@@ -8,14 +8,42 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/pkg/errors"
 	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
+	bytesutil2 "github.com/wealdtech/go-bytesutil"
 )
 
-type HexString string
+type HexString struct {
+	Value       string
+	marshaled   bool
+	unmarshaled bool
+}
+
+func (b *HexString) MarshalJSON() ([]byte, error) {
+	if b.marshaled {
+		return json.Marshal(b.Value)
+	}
+	b.marshaled = true
+
+	if b.Value == "0x" {
+		return []byte{}, nil
+	}
+	src, err := bytesutil2.FromHexString(b.Value)
+	if err != nil {
+		return nil, err
+	}
+	dst := make([]byte, base64.StdEncoding.EncodedLen(len(src)))
+	base64.StdEncoding.Encode(dst, src)
+	return json.Marshal(dst)
+}
 
 func (b *HexString) UnmarshalJSON(enc []byte) error {
+	if b.unmarshaled {
+		return nil
+	}
+	b.unmarshaled = true
+
 	if len(enc) == 0 {
 		// Empty hex values are represented as "0x".
-		*b = "0x"
+		b.Value = "0x"
 		return nil
 	}
 	var s string
@@ -23,19 +51,19 @@ func (b *HexString) UnmarshalJSON(enc []byte) error {
 		return err
 	}
 	if bytesutil.IsHex([]byte(s)) {
-		*b = HexString(s)
+		b.Value = s
 		return nil
 	}
 	if s == "" {
 		// Empty hex values are represented as "0x".
-		*b = "0x"
+		b.Value = "0x"
 		return nil
 	}
 	bytes, err := base64.StdEncoding.DecodeString(s)
 	if err != nil {
 		return err
 	}
-	*b = HexString(hexutil.Encode(bytes))
+	b.Value = hexutil.Encode(bytes)
 	return nil
 }
 

@@ -52,6 +52,8 @@ func processField(s interface{}, processors []fieldProcessor) error {
 						}
 					}
 				}
+			default:
+				return fmt.Errorf("processing slices of kind '%v' is unsupported", kind)
 			}
 		// Recursively process struct pointers.
 		case reflect.Ptr:
