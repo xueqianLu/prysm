@@ -49,6 +49,7 @@ type ReadOnlyBeaconState interface {
 	ReadOnlyBalances
 	ReadOnlyCheckpoint
 	ReadOnlyAttestations
+	ReadOnlyWithdrawals
 	ToProtoUnsafe() interface{}
 	ToProto() interface{}
 	GenesisTime() uint64
@@ -58,6 +59,7 @@ type ReadOnlyBeaconState interface {
 	LatestBlockHeader() *ethpb.BeaconBlockHeader
 	HistoricalRoots() [][]byte
 	Slashings() []uint64
+
 	FieldReferencesCount() map[string]uint64
 	MarshalSSZ() ([]byte, error)
 	IsNil() bool
@@ -75,6 +77,7 @@ type WriteOnlyBeaconState interface {
 	WriteOnlyBalances
 	WriteOnlyCheckpoint
 	WriteOnlyAttestations
+	WriteOnlyWithdrawals
 	SetGenesisTime(val uint64) error
 	SetGenesisValidatorsRoot(val []byte) error
 	SetSlot(val types.Slot) error
@@ -85,10 +88,6 @@ type WriteOnlyBeaconState interface {
 	UpdateSlashingsAtIndex(idx, val uint64) error
 	AppendHistoricalRoots(root [32]byte) error
 	SetLatestExecutionPayloadHeader(payload interfaces.ExecutionData) error
-	SetWithdrawalQueue(val []*enginev1.Withdrawal) error
-	AppendWithdrawal(val *enginev1.Withdrawal) error
-	SetNextWithdrawalIndex(i uint64) error
-	SetNextPartialWithdrawalValidatorIndex(i types.ValidatorIndex) error
 }
 
 // ReadOnlyValidator defines a struct which only has read access to validator methods.
@@ -168,6 +167,13 @@ type ReadOnlyAttestations interface {
 	CurrentEpochAttestations() ([]*ethpb.PendingAttestation, error)
 }
 
+// ReadOnlyWithdrawals defines a struct which only has read access to withdrawal methods.
+type ReadOnlyWithdrawals interface {
+	WithdrawalQueue() ([]*enginev1.Withdrawal, error)
+	NextWithdrawalIndex() (uint64, error)
+	NextPartialWithdrawalValidatorIndex() (types.ValidatorIndex, error)
+}
+
 // WriteOnlyBlockRoots defines a struct which only has write access to block roots methods.
 type WriteOnlyBlockRoots interface {
 	SetBlockRoots(val [][]byte) error
@@ -209,7 +215,7 @@ type WriteOnlyRandaoMixes interface {
 	UpdateRandaoMixesAtIndex(idx uint64, val []byte) error
 }
 
-// WriteOnlyCheckpoint defines a struct which only has write access to check point methods.
+// WriteOnlyCheckpoint defines a struct which only has write access to checkpoint methods.
 type WriteOnlyCheckpoint interface {
 	SetFinalizedCheckpoint(val *ethpb.Checkpoint) error
 	SetPreviousJustifiedCheckpoint(val *ethpb.Checkpoint) error
@@ -222,6 +228,14 @@ type WriteOnlyAttestations interface {
 	AppendCurrentEpochAttestations(val *ethpb.PendingAttestation) error
 	AppendPreviousEpochAttestations(val *ethpb.PendingAttestation) error
 	RotateAttestations() error
+}
+
+// WriteOnlyWithdrawals defines a struct which only has write access to withdrawal methods.
+type WriteOnlyWithdrawals interface {
+	SetWithdrawalQueue(val []*enginev1.Withdrawal) error
+	AppendWithdrawal(val *enginev1.Withdrawal) error
+	SetNextWithdrawalIndex(i uint64) error
+	SetNextPartialWithdrawalValidatorIndex(i types.ValidatorIndex) error
 }
 
 // FutureForkStub defines methods that are used for future forks. This is a low cost solution to enable

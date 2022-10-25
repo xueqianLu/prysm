@@ -83,3 +83,89 @@ func UpgradeToBellatrix(state state.BeaconState) (state.BeaconState, error) {
 
 	return state_native.InitializeFromProtoUnsafeBellatrix(s)
 }
+
+// UpgradeToCapella updates inputs a generic state to return the version Capella state.
+func UpgradeToCapella(state state.BeaconState) (state.BeaconState, error) {
+	epoch := time.CurrentEpoch(state)
+
+	currentSyncCommittee, err := state.CurrentSyncCommittee()
+	if err != nil {
+		return nil, err
+	}
+	nextSyncCommittee, err := state.NextSyncCommittee()
+	if err != nil {
+		return nil, err
+	}
+	prevEpochParticipation, err := state.PreviousEpochParticipation()
+	if err != nil {
+		return nil, err
+	}
+	currentEpochParticipation, err := state.CurrentEpochParticipation()
+	if err != nil {
+		return nil, err
+	}
+	inactivityScores, err := state.InactivityScores()
+	if err != nil {
+		return nil, err
+	}
+	latestExecPayloadHeader, err := state.LatestExecutionPayloadHeader()
+	if err != nil {
+		return nil, err
+	}
+	txRoot, err := latestExecPayloadHeader.TransactionsRoot()
+	if err != nil {
+		return nil, err
+	}
+
+	s := &ethpb.BeaconStateCapella{
+		GenesisTime:           state.GenesisTime(),
+		GenesisValidatorsRoot: state.GenesisValidatorsRoot(),
+		Slot:                  state.Slot(),
+		Fork: &ethpb.Fork{
+			PreviousVersion: state.Fork().CurrentVersion,
+			CurrentVersion:  params.BeaconConfig().BellatrixForkVersion,
+			Epoch:           epoch,
+		},
+		LatestBlockHeader:           state.LatestBlockHeader(),
+		BlockRoots:                  state.BlockRoots(),
+		StateRoots:                  state.StateRoots(),
+		HistoricalRoots:             state.HistoricalRoots(),
+		Eth1Data:                    state.Eth1Data(),
+		Eth1DataVotes:               state.Eth1DataVotes(),
+		Eth1DepositIndex:            state.Eth1DepositIndex(),
+		Validators:                  state.Validators(),
+		Balances:                    state.Balances(),
+		RandaoMixes:                 state.RandaoMixes(),
+		Slashings:                   state.Slashings(),
+		PreviousEpochParticipation:  prevEpochParticipation,
+		CurrentEpochParticipation:   currentEpochParticipation,
+		JustificationBits:           state.JustificationBits(),
+		PreviousJustifiedCheckpoint: state.PreviousJustifiedCheckpoint(),
+		CurrentJustifiedCheckpoint:  state.CurrentJustifiedCheckpoint(),
+		FinalizedCheckpoint:         state.FinalizedCheckpoint(),
+		InactivityScores:            inactivityScores,
+		CurrentSyncCommittee:        currentSyncCommittee,
+		NextSyncCommittee:           nextSyncCommittee,
+		LatestExecutionPayloadHeader: &enginev1.ExecutionPayloadHeaderCapella{
+			ParentHash:       latestExecPayloadHeader.ParentHash(),
+			FeeRecipient:     latestExecPayloadHeader.FeeRecipient(),
+			StateRoot:        latestExecPayloadHeader.StateRoot(),
+			ReceiptsRoot:     latestExecPayloadHeader.ReceiptsRoot(),
+			LogsBloom:        latestExecPayloadHeader.LogsBloom(),
+			PrevRandao:       latestExecPayloadHeader.PrevRandao(),
+			BlockNumber:      latestExecPayloadHeader.BlockNumber(),
+			GasLimit:         latestExecPayloadHeader.GasLimit(),
+			GasUsed:          latestExecPayloadHeader.GasUsed(),
+			Timestamp:        latestExecPayloadHeader.Timestamp(),
+			BaseFeePerGas:    latestExecPayloadHeader.BaseFeePerGas(),
+			BlockHash:        latestExecPayloadHeader.BlockHash(),
+			TransactionsRoot: txRoot,
+			WithdrawalsRoot:  make([]byte, 32),
+		},
+		WithdrawalQueue:                     make([]*enginev1.Withdrawal, 0),
+		NextWithdrawalIndex:                 0,
+		NextPartialWithdrawalValidatorIndex: 0,
+	}
+
+	return state_native.InitializeFromProtoUnsafeCapella(s)
+}

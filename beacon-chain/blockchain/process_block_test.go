@@ -43,6 +43,7 @@ import (
 	"github.com/prysmaticlabs/prysm/v3/testing/util"
 	prysmTime "github.com/prysmaticlabs/prysm/v3/time"
 	logTest "github.com/sirupsen/logrus/hooks/test"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestStore_OnBlock(t *testing.T) {
@@ -1115,7 +1116,7 @@ func Test_getStateVersionAndPayload(t *testing.T) {
 		name    string
 		st      state.BeaconState
 		version int
-		header  *enginev1.ExecutionPayloadHeader
+		header  proto.Message
 	}{
 		{
 			name: "phase 0 state",
@@ -1148,6 +1149,22 @@ func Test_getStateVersionAndPayload(t *testing.T) {
 			}(),
 			version: version.Bellatrix,
 			header: &enginev1.ExecutionPayloadHeader{
+				BlockNumber: 1,
+			},
+		},
+		{
+			name: "capella state",
+			st: func() state.BeaconState {
+				s, _ := util.DeterministicGenesisStateCapella(t, 1)
+				wrappedHeader, err := consensusblocks.WrappedExecutionPayloadHeaderCapella(&enginev1.ExecutionPayloadHeaderCapella{
+					BlockNumber: 1,
+				})
+				require.NoError(t, err)
+				require.NoError(t, s.SetLatestExecutionPayloadHeader(wrappedHeader))
+				return s
+			}(),
+			version: version.Capella,
+			header: &enginev1.ExecutionPayloadHeaderCapella{
 				BlockNumber: 1,
 			},
 		},

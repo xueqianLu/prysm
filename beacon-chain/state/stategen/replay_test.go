@@ -166,8 +166,38 @@ func TestReplayBlocks_ThroughBellatrixForkBoundary(t *testing.T) {
 	newState, err := service.replayBlocks(context.Background(), beaconState, []interfaces.SignedBeaconBlock{}, targetSlot)
 	require.NoError(t, err)
 
-	// Verify state is version Altair.
 	assert.Equal(t, version.Bellatrix, newState.Version())
+}
+
+func TestReplayBlocks_ThroughCapellaForkBoundary(t *testing.T) {
+	params.SetupTestConfigCleanup(t)
+	bCfg := params.BeaconConfig().Copy()
+	bCfg.AltairForkEpoch = 1
+	bCfg.ForkVersionSchedule[bytesutil.ToBytes4(bCfg.AltairForkVersion)] = 1
+	bCfg.BellatrixForkEpoch = 2
+	bCfg.ForkVersionSchedule[bytesutil.ToBytes4(bCfg.BellatrixForkVersion)] = 2
+	bCfg.CapellaForkEpoch = 3
+	bCfg.ForkVersionSchedule[bytesutil.ToBytes4(bCfg.CapellaForkVersion)] = 3
+	params.OverrideBeaconConfig(bCfg)
+
+	beaconState, _ := util.DeterministicGenesisState(t, 32)
+	genesisBlock := blocks.NewGenesisBlock([]byte{})
+	bodyRoot, err := genesisBlock.Block.HashTreeRoot()
+	require.NoError(t, err)
+	err = beaconState.SetLatestBlockHeader(&ethpb.BeaconBlockHeader{
+		Slot:       genesisBlock.Block.Slot,
+		ParentRoot: genesisBlock.Block.ParentRoot,
+		StateRoot:  params.BeaconConfig().ZeroHash[:],
+		BodyRoot:   bodyRoot[:],
+	})
+	require.NoError(t, err)
+
+	service := New(testDB.SetupDB(t), doublylinkedtree.New())
+	targetSlot := params.BeaconConfig().SlotsPerEpoch * 3
+	newState, err := service.replayBlocks(context.Background(), beaconState, []interfaces.SignedBeaconBlock{}, targetSlot)
+	require.NoError(t, err)
+
+	assert.Equal(t, version.Capella, newState.Version())
 }
 
 func TestLoadBlocks_FirstBranch(t *testing.T) {
