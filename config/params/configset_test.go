@@ -170,6 +170,8 @@ func compareConfigs(t *testing.T, expected, actual *BeaconChainConfig) {
 	require.DeepEqual(t, expected.AltairForkEpoch, actual.AltairForkEpoch)
 	require.DeepEqual(t, expected.BellatrixForkVersion, actual.BellatrixForkVersion)
 	require.DeepEqual(t, expected.BellatrixForkEpoch, actual.BellatrixForkEpoch)
+	require.DeepEqual(t, expected.CapellaForkVersion, actual.CapellaForkVersion)
+	require.DeepEqual(t, expected.CapellaForkEpoch, actual.CapellaForkEpoch)
 	require.DeepEqual(t, expected.ShardingForkVersion, actual.ShardingForkVersion)
 	require.DeepEqual(t, expected.ShardingForkEpoch, actual.ShardingForkEpoch)
 	require.DeepEqual(t, expected.ForkVersionSchedule, actual.ForkVersionSchedule)
