@@ -6,23 +6,14 @@ import (
 	"errors"
 	"testing"
 
-	types "github.com/prysmaticlabs/eth2-types"
-	"github.com/prysmaticlabs/prysm/beacon-chain/state"
-	v2 "github.com/prysmaticlabs/prysm/beacon-chain/state/v2"
-	"github.com/prysmaticlabs/prysm/encoding/bytesutil"
-	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/testing/require"
-	"github.com/prysmaticlabs/prysm/time/slots"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/state"
+	state_native "github.com/prysmaticlabs/prysm/v3/beacon-chain/state/state-native"
+	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
+	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v3/testing/require"
+	"github.com/prysmaticlabs/prysm/v3/time/slots"
 )
-
-type mockStateByRoot struct {
-	state state.BeaconState
-	err   error
-}
-
-func (m *mockStateByRoot) StateByRoot(context.Context, [32]byte) (state.BeaconState, error) {
-	return m.state, m.err
-}
 
 type testStateOpt func(*ethpb.BeaconStateAltair)
 
@@ -43,7 +34,7 @@ func testStateFixture(opts ...testStateOpt) state.BeaconState {
 	for _, o := range opts {
 		o(a)
 	}
-	s, _ := v2.InitializeFromProtoUnsafe(a)
+	s, _ := state_native.InitializeFromProtoUnsafeAltair(a)
 	return s
 }
 
@@ -126,7 +117,7 @@ func TestStateBalanceCache(t *testing.T) {
 		balances []uint64
 		name     string
 	}
-	sentinelCacheMiss := errors.New("Cache missed, as expected!")
+	sentinelCacheMiss := errors.New("cache missed, as expected")
 	sentinelBalances := []uint64{1, 2, 3, 4, 5}
 	halfExpiredValidators, halfExpiredBalances := testHalfExpiredValidators()
 	halfQueuedValidators, halfQueuedBalances := testHalfQueuedValidators()
@@ -150,7 +141,6 @@ func TestStateBalanceCache(t *testing.T) {
 		{
 			sbc: &stateBalanceCache{
 				stateGen: &mockStateByRooter{
-					//state: generateTestValidators(1, testWithBadEpoch),
 					err: sentinelCacheMiss,
 				},
 				root: bytesutil.ToBytes32([]byte{'B'}),
@@ -203,6 +193,18 @@ func TestStateBalanceCache(t *testing.T) {
 			balances: allValidBalances,
 			root:     bytesutil.ToBytes32([]byte{'A'}),
 			name:     "happy path",
+		},
+		{
+			sbc: &stateBalanceCache{
+				stateGen: &mockStateByRooter{
+					state: testStateFixture(
+						testStateWithSlot(99),
+						testStateWithValidators(allValidValidators)),
+				},
+			},
+			balances: allValidBalances,
+			root:     [32]byte{},
+			name:     "zero root",
 		},
 	}
 	ctx := context.Background()

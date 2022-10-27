@@ -3,20 +3,21 @@ package encoder
 import (
 	"fmt"
 	"io"
-	"math"
 	"sync"
 
-	fastssz "github.com/ferranbt/fastssz"
 	"github.com/gogo/protobuf/proto"
 	"github.com/golang/snappy"
 	"github.com/pkg/errors"
-	"github.com/prysmaticlabs/prysm/config/params"
+	fastssz "github.com/prysmaticlabs/fastssz"
+	"github.com/prysmaticlabs/prysm/v3/config/params"
+	"github.com/prysmaticlabs/prysm/v3/math"
 )
 
 var _ NetworkEncoding = (*SszNetworkEncoder)(nil)
 
 // MaxGossipSize allowed for gossip messages.
-var MaxGossipSize = params.BeaconNetworkConfig().GossipMaxSize // 1 Mib
+var MaxGossipSize = params.BeaconNetworkConfig().GossipMaxSize // 1 Mib.
+var MaxChunkSize = params.BeaconNetworkConfig().MaxChunkSize   // 1 Mib.
 
 // This pool defines the sync pool for our buffered snappy writers, so that they
 // can be constantly reused.
@@ -59,11 +60,11 @@ func (_ SszNetworkEncoder) EncodeWithMaxLength(w io.Writer, msg fastssz.Marshale
 	if err != nil {
 		return 0, err
 	}
-	if uint64(len(b)) > params.BeaconNetworkConfig().MaxChunkSize {
+	if uint64(len(b)) > MaxChunkSize {
 		return 0, fmt.Errorf(
 			"size of encoded message is %d which is larger than the provided max limit of %d",
 			len(b),
-			params.BeaconNetworkConfig().MaxChunkSize,
+			MaxChunkSize,
 		)
 	}
 	// write varint first
@@ -110,11 +111,11 @@ func (e SszNetworkEncoder) DecodeWithMaxLength(r io.Reader, to fastssz.Unmarshal
 	if err != nil {
 		return err
 	}
-	if msgLen > params.BeaconNetworkConfig().MaxChunkSize {
+	if msgLen > MaxChunkSize {
 		return fmt.Errorf(
 			"remaining bytes %d goes over the provided max limit of %d",
 			msgLen,
-			params.BeaconNetworkConfig().MaxChunkSize,
+			MaxChunkSize,
 		)
 	}
 	msgMax, err := e.MaxLength(msgLen)
@@ -144,11 +145,11 @@ func (_ SszNetworkEncoder) ProtocolSuffix() string {
 // MaxLength specifies the maximum possible length of an encoded
 // chunk of data.
 func (_ SszNetworkEncoder) MaxLength(length uint64) (int, error) {
-	// Defensive check to prevent potential issues when casting to int64.
-	if length > math.MaxInt64 {
-		return 0, errors.Errorf("invalid length provided: %d", length)
+	il, err := math.Int(length)
+	if err != nil {
+		return 0, errors.Wrap(err, "invalid length provided")
 	}
-	maxLen := snappy.MaxEncodedLen(int(length))
+	maxLen := snappy.MaxEncodedLen(il)
 	if maxLen < 0 {
 		return 0, errors.Errorf("max encoded length is negative: %d", maxLen)
 	}
@@ -198,4 +199,14 @@ func newBufferedWriter(w io.Writer) *snappy.Writer {
 	}
 	bufW.Reset(w)
 	return bufW
+}
+
+// SetMaxGossipSizeForBellatrix sets the MaxGossipSize to 10Mb.
+func SetMaxGossipSizeForBellatrix() {
+	MaxGossipSize = params.BeaconNetworkConfig().GossipMaxSizeBellatrix
+}
+
+// SetMaxChunkSizeForBellatrix sets the MaxChunkSize to 10Mb.
+func SetMaxChunkSizeForBellatrix() {
+	MaxChunkSize = params.BeaconNetworkConfig().MaxChunkSizeBellatrix
 }

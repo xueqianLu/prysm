@@ -6,16 +6,16 @@ import (
 
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/pkg/errors"
-	types "github.com/prysmaticlabs/eth2-types"
-	"github.com/prysmaticlabs/prysm/api/grpc"
-	"github.com/prysmaticlabs/prysm/beacon-chain/core/altair"
-	"github.com/prysmaticlabs/prysm/beacon-chain/rpc/eth/helpers"
-	"github.com/prysmaticlabs/prysm/beacon-chain/state"
-	"github.com/prysmaticlabs/prysm/config/params"
-	"github.com/prysmaticlabs/prysm/encoding/bytesutil"
-	ethpbv2 "github.com/prysmaticlabs/prysm/proto/eth/v2"
-	ethpbalpha "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/time/slots"
+	"github.com/prysmaticlabs/prysm/v3/api/grpc"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/altair"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/rpc/eth/helpers"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/state"
+	"github.com/prysmaticlabs/prysm/v3/config/params"
+	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
+	ethpbv2 "github.com/prysmaticlabs/prysm/v3/proto/eth/v2"
+	ethpbalpha "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v3/time/slots"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -39,11 +39,9 @@ func (bs *Server) ListSyncCommittees(ctx context.Context, req *ethpbv2.StateSync
 		)
 	}
 
-	var reqPeriodStartEpoch types.Epoch
-	if req.Epoch == nil {
-		reqPeriodStartEpoch = currentPeriodStartEpoch
-	} else {
-		reqPeriodStartEpoch, err = slots.SyncCommitteePeriodStartEpoch(*req.Epoch)
+	requestNextCommittee := false
+	if req.Epoch != nil {
+		reqPeriodStartEpoch, err := slots.SyncCommitteePeriodStartEpoch(*req.Epoch)
 		if err != nil {
 			return nil, status.Errorf(
 				codes.Internal,
@@ -59,6 +57,10 @@ func (bs *Server) ListSyncCommittees(ctx context.Context, req *ethpbv2.StateSync
 				*req.Epoch, currentEpoch,
 			)
 		}
+		if reqPeriodStartEpoch > currentPeriodStartEpoch {
+			requestNextCommittee = true
+			req.Epoch = &currentPeriodStartEpoch
+		}
 	}
 
 	st, err := bs.stateFromRequest(ctx, &stateRequest{
@@ -71,7 +73,7 @@ func (bs *Server) ListSyncCommittees(ctx context.Context, req *ethpbv2.StateSync
 
 	var committeeIndices []types.ValidatorIndex
 	var committee *ethpbalpha.SyncCommittee
-	if reqPeriodStartEpoch > currentPeriodStartEpoch {
+	if requestNextCommittee {
 		// Get the next sync committee and sync committee indices from the state.
 		committeeIndices, committee, err = nextCommitteeIndicesFromState(st)
 		if err != nil {
@@ -89,12 +91,33 @@ func (bs *Server) ListSyncCommittees(ctx context.Context, req *ethpbv2.StateSync
 		return nil, status.Errorf(codes.Internal, "Could not extract sync subcommittees: %v", err)
 	}
 
+	isOptimistic, err := helpers.IsOptimistic(ctx, st, bs.OptimisticModeFetcher)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Could not check if slot's block is optimistic: %v", err)
+	}
+
 	return &ethpbv2.StateSyncCommitteesResponse{
 		Data: &ethpbv2.SyncCommitteeValidators{
 			Validators:          committeeIndices,
 			ValidatorAggregates: subcommittees,
 		},
+		ExecutionOptimistic: isOptimistic,
 	}, nil
+}
+
+func committeeIndicesFromState(st state.BeaconState, committee *ethpbalpha.SyncCommittee) ([]types.ValidatorIndex, *ethpbalpha.SyncCommittee, error) {
+	committeeIndices := make([]types.ValidatorIndex, len(committee.Pubkeys))
+	for i, key := range committee.Pubkeys {
+		index, ok := st.ValidatorIndexByPubkey(bytesutil.ToBytes48(key))
+		if !ok {
+			return nil, nil, fmt.Errorf(
+				"validator index not found for pubkey %#x",
+				bytesutil.Trunc(key),
+			)
+		}
+		committeeIndices[i] = index
+	}
+	return committeeIndices, committee, nil
 }
 
 func currentCommitteeIndicesFromState(st state.BeaconState) ([]types.ValidatorIndex, *ethpbalpha.SyncCommittee, error) {
@@ -105,18 +128,7 @@ func currentCommitteeIndicesFromState(st state.BeaconState) ([]types.ValidatorIn
 		)
 	}
 
-	committeeIndices := make([]types.ValidatorIndex, len(committee.Pubkeys))
-	for i, key := range committee.Pubkeys {
-		index, ok := st.ValidatorIndexByPubkey(bytesutil.ToBytes48(key))
-		if !ok {
-			return nil, nil, fmt.Errorf(
-				"validator index not found for pubkey %#x",
-				bytesutil.Trunc(key),
-			)
-		}
-		committeeIndices[i] = index
-	}
-	return committeeIndices, committee, nil
+	return committeeIndicesFromState(st, committee)
 }
 
 func nextCommitteeIndicesFromState(st state.BeaconState) ([]types.ValidatorIndex, *ethpbalpha.SyncCommittee, error) {
@@ -127,18 +139,7 @@ func nextCommitteeIndicesFromState(st state.BeaconState) ([]types.ValidatorIndex
 		)
 	}
 
-	committeeIndices := make([]types.ValidatorIndex, len(committee.Pubkeys))
-	for i, key := range committee.Pubkeys {
-		index, ok := st.ValidatorIndexByPubkey(bytesutil.ToBytes48(key))
-		if !ok {
-			return nil, nil, fmt.Errorf(
-				"validator index not found for pubkey %#x",
-				bytesutil.Trunc(key),
-			)
-		}
-		committeeIndices[i] = index
-	}
-	return committeeIndices, committee, nil
+	return committeeIndicesFromState(st, committee)
 }
 
 func extractSyncSubcommittees(st state.BeaconState, committee *ethpbalpha.SyncCommittee) ([]*ethpbv2.SyncSubcommitteeValidators, error) {

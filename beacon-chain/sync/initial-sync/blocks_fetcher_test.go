@@ -8,25 +8,25 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kevinms/leakybucket-go"
-	libp2pcore "github.com/libp2p/go-libp2p-core"
-	"github.com/libp2p/go-libp2p-core/network"
-	types "github.com/prysmaticlabs/eth2-types"
-	mock "github.com/prysmaticlabs/prysm/beacon-chain/blockchain/testing"
-	dbtest "github.com/prysmaticlabs/prysm/beacon-chain/db/testing"
-	p2pm "github.com/prysmaticlabs/prysm/beacon-chain/p2p"
-	p2pt "github.com/prysmaticlabs/prysm/beacon-chain/p2p/testing"
-	beaconsync "github.com/prysmaticlabs/prysm/beacon-chain/sync"
-	"github.com/prysmaticlabs/prysm/cmd/beacon-chain/flags"
-	"github.com/prysmaticlabs/prysm/config/params"
-	"github.com/prysmaticlabs/prysm/container/slice"
-	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1/block"
-	"github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1/wrapper"
-	"github.com/prysmaticlabs/prysm/testing/assert"
-	"github.com/prysmaticlabs/prysm/testing/require"
-	"github.com/prysmaticlabs/prysm/testing/util"
-	"github.com/prysmaticlabs/prysm/time/slots"
+	libp2pcore "github.com/libp2p/go-libp2p/core"
+	"github.com/libp2p/go-libp2p/core/network"
+	mock "github.com/prysmaticlabs/prysm/v3/beacon-chain/blockchain/testing"
+	dbtest "github.com/prysmaticlabs/prysm/v3/beacon-chain/db/testing"
+	p2pm "github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p"
+	p2pt "github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/testing"
+	beaconsync "github.com/prysmaticlabs/prysm/v3/beacon-chain/sync"
+	"github.com/prysmaticlabs/prysm/v3/cmd/beacon-chain/flags"
+	"github.com/prysmaticlabs/prysm/v3/config/params"
+	"github.com/prysmaticlabs/prysm/v3/consensus-types/blocks"
+	"github.com/prysmaticlabs/prysm/v3/consensus-types/interfaces"
+	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
+	leakybucket "github.com/prysmaticlabs/prysm/v3/container/leaky-bucket"
+	"github.com/prysmaticlabs/prysm/v3/container/slice"
+	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v3/testing/assert"
+	"github.com/prysmaticlabs/prysm/v3/testing/require"
+	"github.com/prysmaticlabs/prysm/v3/testing/util"
+	"github.com/prysmaticlabs/prysm/v3/time/slots"
 	"github.com/sirupsen/logrus"
 	logTest "github.com/sirupsen/logrus/hooks/test"
 )
@@ -267,8 +267,7 @@ func TestBlocksFetcher_RoundRobin(t *testing.T) {
 			genesisRoot := cache.rootCache[0]
 			cache.RUnlock()
 
-			err := beaconDB.SaveBlock(context.Background(), wrapper.WrappedPhase0SignedBeaconBlock(util.NewBeaconBlock()))
-			require.NoError(t, err)
+			util.SaveBlock(t, context.Background(), beaconDB, util.NewBeaconBlock())
 
 			st, err := util.NewBeaconState()
 			require.NoError(t, err)
@@ -299,9 +298,9 @@ func TestBlocksFetcher_RoundRobin(t *testing.T) {
 				fetcher.stop()
 			}()
 
-			processFetchedBlocks := func() ([]block.SignedBeaconBlock, error) {
+			processFetchedBlocks := func() ([]interfaces.SignedBeaconBlock, error) {
 				defer cancel()
-				var unionRespBlocks []block.SignedBeaconBlock
+				var unionRespBlocks []interfaces.SignedBeaconBlock
 
 				for {
 					select {
@@ -344,14 +343,14 @@ func TestBlocksFetcher_RoundRobin(t *testing.T) {
 				return blocks[i].Block().Slot() < blocks[j].Block().Slot()
 			})
 
-			slots := make([]types.Slot, len(blocks))
+			ss := make([]types.Slot, len(blocks))
 			for i, block := range blocks {
-				slots[i] = block.Block().Slot()
+				ss[i] = block.Block().Slot()
 			}
 
 			log.WithFields(logrus.Fields{
 				"blocksLen": len(blocks),
-				"slots":     slots,
+				"slots":     ss,
 			}).Debug("Finished block fetching")
 
 			if len(blocks) > int(maxExpectedBlocks) {
@@ -371,7 +370,7 @@ func TestBlocksFetcher_RoundRobin(t *testing.T) {
 }
 
 func TestBlocksFetcher_scheduleRequest(t *testing.T) {
-	blockBatchLimit := flags.Get().BlockBatchLimit
+	blockBatchLimit := uint64(flags.Get().BlockBatchLimit)
 	t.Run("context cancellation", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		fetcher := newBlocksFetcher(ctx, &blocksFetcherConfig{})
@@ -425,7 +424,7 @@ func TestBlocksFetcher_handleRequest(t *testing.T) {
 		})
 
 		cancel()
-		response := fetcher.handleRequest(ctx, 1, blockBatchLimit)
+		response := fetcher.handleRequest(ctx, 1, uint64(blockBatchLimit))
 		assert.ErrorContains(t, "context canceled", response.err)
 	})
 
@@ -440,14 +439,14 @@ func TestBlocksFetcher_handleRequest(t *testing.T) {
 		requestCtx, reqCancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer reqCancel()
 		go func() {
-			response := fetcher.handleRequest(requestCtx, 1 /* start */, blockBatchLimit /* count */)
+			response := fetcher.handleRequest(requestCtx, 1 /* start */, uint64(blockBatchLimit) /* count */)
 			select {
 			case <-ctx.Done():
 			case fetcher.fetchResponses <- response:
 			}
 		}()
 
-		var blocks []block.SignedBeaconBlock
+		var blocks []interfaces.SignedBeaconBlock
 		select {
 		case <-ctx.Done():
 			t.Error(ctx.Err())
@@ -458,7 +457,7 @@ func TestBlocksFetcher_handleRequest(t *testing.T) {
 				blocks = resp.blocks
 			}
 		}
-		if uint64(len(blocks)) != blockBatchLimit {
+		if uint64(len(blocks)) != uint64(blockBatchLimit) {
 			t.Errorf("incorrect number of blocks returned, expected: %v, got: %v", blockBatchLimit, len(blocks))
 		}
 
@@ -509,11 +508,11 @@ func TestBlocksFetcher_requestBeaconBlocksByRange(t *testing.T) {
 	req := &ethpb.BeaconBlocksByRangeRequest{
 		StartSlot: 1,
 		Step:      1,
-		Count:     blockBatchLimit,
+		Count:     uint64(blockBatchLimit),
 	}
 	blocks, err := fetcher.requestBlocks(ctx, req, peerIDs[0])
 	assert.NoError(t, err)
-	assert.Equal(t, blockBatchLimit, uint64(len(blocks)), "Incorrect number of blocks returned")
+	assert.Equal(t, uint64(blockBatchLimit), uint64(len(blocks)), "Incorrect number of blocks returned")
 
 	// Test context cancellation.
 	ctx, cancel = context.WithCancel(context.Background())
@@ -548,7 +547,7 @@ func TestBlocksFetcher_RequestBlocksRateLimitingLocks(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	fetcher := newBlocksFetcher(ctx, &blocksFetcherConfig{p2p: p1})
-	fetcher.rateLimiter = leakybucket.NewCollector(float64(req.Count), int64(req.Count*burstFactor), false)
+	fetcher.rateLimiter = leakybucket.NewCollector(float64(req.Count), int64(req.Count*burstFactor), 1*time.Second, false)
 	fetcher.chain = &mock.ChainService{Genesis: time.Now(), ValidatorsRoot: [32]byte{}}
 	hook := logTest.NewGlobal()
 	wg := new(sync.WaitGroup)
@@ -598,7 +597,7 @@ func TestBlocksFetcher_requestBlocksFromPeerReturningInvalidBlocks(t *testing.T)
 		req          *ethpb.BeaconBlocksByRangeRequest
 		handlerGenFn func(req *ethpb.BeaconBlocksByRangeRequest) func(stream network.Stream)
 		wantedErr    string
-		validate     func(req *ethpb.BeaconBlocksByRangeRequest, blocks []block.SignedBeaconBlock)
+		validate     func(req *ethpb.BeaconBlocksByRangeRequest, blocks []interfaces.SignedBeaconBlock)
 	}{
 		{
 			name: "no error",
@@ -613,12 +612,14 @@ func TestBlocksFetcher_requestBlocksFromPeerReturningInvalidBlocks(t *testing.T)
 						blk := util.NewBeaconBlock()
 						blk.Block.Slot = i
 						mchain := &mock.ChainService{Genesis: time.Now(), ValidatorsRoot: [32]byte{}}
-						assert.NoError(t, beaconsync.WriteBlockChunk(stream, mchain, p1.Encoding(), wrapper.WrappedPhase0SignedBeaconBlock(blk)))
+						wsb, err := blocks.NewSignedBeaconBlock(blk)
+						require.NoError(t, err)
+						assert.NoError(t, beaconsync.WriteBlockChunk(stream, mchain, p1.Encoding(), wsb))
 					}
 					assert.NoError(t, stream.Close())
 				}
 			},
-			validate: func(req *ethpb.BeaconBlocksByRangeRequest, blocks []block.SignedBeaconBlock) {
+			validate: func(req *ethpb.BeaconBlocksByRangeRequest, blocks []interfaces.SignedBeaconBlock) {
 				assert.Equal(t, req.Count, uint64(len(blocks)))
 			},
 		},
@@ -635,12 +636,14 @@ func TestBlocksFetcher_requestBlocksFromPeerReturningInvalidBlocks(t *testing.T)
 						blk := util.NewBeaconBlock()
 						blk.Block.Slot = i
 						chain := &mock.ChainService{Genesis: time.Now(), ValidatorsRoot: [32]byte{}}
-						assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wrapper.WrappedPhase0SignedBeaconBlock(blk)))
+						wsb, err := blocks.NewSignedBeaconBlock(blk)
+						require.NoError(t, err)
+						assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wsb))
 					}
 					assert.NoError(t, stream.Close())
 				}
 			},
-			validate: func(req *ethpb.BeaconBlocksByRangeRequest, blocks []block.SignedBeaconBlock) {
+			validate: func(req *ethpb.BeaconBlocksByRangeRequest, blocks []interfaces.SignedBeaconBlock) {
 				assert.Equal(t, 0, len(blocks))
 			},
 			wantedErr: beaconsync.ErrInvalidFetchedData.Error(),
@@ -657,15 +660,19 @@ func TestBlocksFetcher_requestBlocksFromPeerReturningInvalidBlocks(t *testing.T)
 					blk := util.NewBeaconBlock()
 					blk.Block.Slot = 163
 					chain := &mock.ChainService{Genesis: time.Now(), ValidatorsRoot: [32]byte{}}
-					assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wrapper.WrappedPhase0SignedBeaconBlock(blk)))
+					wsb, err := blocks.NewSignedBeaconBlock(blk)
+					require.NoError(t, err)
+					assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wsb))
 
 					blk = util.NewBeaconBlock()
 					blk.Block.Slot = 162
-					assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wrapper.WrappedPhase0SignedBeaconBlock(blk)))
+					wsb, err = blocks.NewSignedBeaconBlock(blk)
+					require.NoError(t, err)
+					assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wsb))
 					assert.NoError(t, stream.Close())
 				}
 			},
-			validate: func(req *ethpb.BeaconBlocksByRangeRequest, blocks []block.SignedBeaconBlock) {
+			validate: func(req *ethpb.BeaconBlocksByRangeRequest, blocks []interfaces.SignedBeaconBlock) {
 				assert.Equal(t, 0, len(blocks))
 			},
 			wantedErr: beaconsync.ErrInvalidFetchedData.Error(),
@@ -683,15 +690,19 @@ func TestBlocksFetcher_requestBlocksFromPeerReturningInvalidBlocks(t *testing.T)
 					blk.Block.Slot = 160
 					chain := &mock.ChainService{Genesis: time.Now(), ValidatorsRoot: [32]byte{}}
 
-					assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wrapper.WrappedPhase0SignedBeaconBlock(blk)))
+					wsb, err := blocks.NewSignedBeaconBlock(blk)
+					require.NoError(t, err)
+					assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wsb))
 
 					blk = util.NewBeaconBlock()
 					blk.Block.Slot = 160
-					assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wrapper.WrappedPhase0SignedBeaconBlock(blk)))
+					wsb, err = blocks.NewSignedBeaconBlock(blk)
+					require.NoError(t, err)
+					assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wsb))
 					assert.NoError(t, stream.Close())
 				}
 			},
-			validate: func(req *ethpb.BeaconBlocksByRangeRequest, blocks []block.SignedBeaconBlock) {
+			validate: func(req *ethpb.BeaconBlocksByRangeRequest, blocks []interfaces.SignedBeaconBlock) {
 				assert.Equal(t, 0, len(blocks))
 			},
 			wantedErr: beaconsync.ErrInvalidFetchedData.Error(),
@@ -714,16 +725,20 @@ func TestBlocksFetcher_requestBlocksFromPeerReturningInvalidBlocks(t *testing.T)
 						// Patch mid block, with invalid slot number.
 						if i == req.StartSlot.Add(req.Count*req.Step/2) {
 							blk.Block.Slot = req.StartSlot - 1
-							assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wrapper.WrappedPhase0SignedBeaconBlock(blk)))
+							wsb, err := blocks.NewSignedBeaconBlock(blk)
+							require.NoError(t, err)
+							assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wsb))
 							break
 						}
 						blk.Block.Slot = i
-						assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wrapper.WrappedPhase0SignedBeaconBlock(blk)))
+						wsb, err := blocks.NewSignedBeaconBlock(blk)
+						require.NoError(t, err)
+						assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wsb))
 					}
 				}
 			},
 			wantedErr: beaconsync.ErrInvalidFetchedData.Error(),
-			validate: func(req *ethpb.BeaconBlocksByRangeRequest, blocks []block.SignedBeaconBlock) {
+			validate: func(req *ethpb.BeaconBlocksByRangeRequest, blocks []interfaces.SignedBeaconBlock) {
 				assert.Equal(t, 0, len(blocks))
 			},
 		},
@@ -745,16 +760,20 @@ func TestBlocksFetcher_requestBlocksFromPeerReturningInvalidBlocks(t *testing.T)
 						// Patch mid block, with invalid slot number.
 						if i == req.StartSlot.Add(req.Count*req.Step/2) {
 							blk.Block.Slot = req.StartSlot.Add(req.Count * req.Step)
-							assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wrapper.WrappedPhase0SignedBeaconBlock(blk)))
+							wsb, err := blocks.NewSignedBeaconBlock(blk)
+							require.NoError(t, err)
+							assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wsb))
 							break
 						}
 						blk.Block.Slot = i
-						assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wrapper.WrappedPhase0SignedBeaconBlock(blk)))
+						wsb, err := blocks.NewSignedBeaconBlock(blk)
+						require.NoError(t, err)
+						assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wsb))
 					}
 				}
 			},
 			wantedErr: beaconsync.ErrInvalidFetchedData.Error(),
-			validate: func(req *ethpb.BeaconBlocksByRangeRequest, blocks []block.SignedBeaconBlock) {
+			validate: func(req *ethpb.BeaconBlocksByRangeRequest, blocks []interfaces.SignedBeaconBlock) {
 				assert.Equal(t, 0, len(blocks))
 			},
 		},
@@ -770,15 +789,19 @@ func TestBlocksFetcher_requestBlocksFromPeerReturningInvalidBlocks(t *testing.T)
 					blk := util.NewBeaconBlock()
 					blk.Block.Slot = 100
 					chain := &mock.ChainService{Genesis: time.Now(), ValidatorsRoot: [32]byte{}}
-					assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wrapper.WrappedPhase0SignedBeaconBlock(blk)))
+					wsb, err := blocks.NewSignedBeaconBlock(blk)
+					require.NoError(t, err)
+					assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wsb))
 
 					blk = util.NewBeaconBlock()
 					blk.Block.Slot = 105
-					assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wrapper.WrappedPhase0SignedBeaconBlock(blk)))
+					wsb, err = blocks.NewSignedBeaconBlock(blk)
+					require.NoError(t, err)
+					assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wsb))
 					assert.NoError(t, stream.Close())
 				}
 			},
-			validate: func(req *ethpb.BeaconBlocksByRangeRequest, blocks []block.SignedBeaconBlock) {
+			validate: func(req *ethpb.BeaconBlocksByRangeRequest, blocks []interfaces.SignedBeaconBlock) {
 				assert.Equal(t, 2, len(blocks))
 			},
 		},
@@ -794,15 +817,19 @@ func TestBlocksFetcher_requestBlocksFromPeerReturningInvalidBlocks(t *testing.T)
 					blk := util.NewBeaconBlock()
 					blk.Block.Slot = 100
 					chain := &mock.ChainService{Genesis: time.Now(), ValidatorsRoot: [32]byte{}}
-					assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wrapper.WrappedPhase0SignedBeaconBlock(blk)))
+					wsb, err := blocks.NewSignedBeaconBlock(blk)
+					require.NoError(t, err)
+					assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wsb))
 
 					blk = util.NewBeaconBlock()
 					blk.Block.Slot = 103
-					assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wrapper.WrappedPhase0SignedBeaconBlock(blk)))
+					wsb, err = blocks.NewSignedBeaconBlock(blk)
+					require.NoError(t, err)
+					assert.NoError(t, beaconsync.WriteBlockChunk(stream, chain, p1.Encoding(), wsb))
 					assert.NoError(t, stream.Close())
 				}
 			},
-			validate: func(req *ethpb.BeaconBlocksByRangeRequest, blocks []block.SignedBeaconBlock) {
+			validate: func(req *ethpb.BeaconBlocksByRangeRequest, blocks []interfaces.SignedBeaconBlock) {
 				assert.Equal(t, 0, len(blocks))
 			},
 			wantedErr: beaconsync.ErrInvalidFetchedData.Error(),
@@ -815,7 +842,7 @@ func TestBlocksFetcher_requestBlocksFromPeerReturningInvalidBlocks(t *testing.T)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	fetcher := newBlocksFetcher(ctx, &blocksFetcherConfig{p2p: p1, chain: &mock.ChainService{Genesis: time.Now(), ValidatorsRoot: [32]byte{}}})
-	fetcher.rateLimiter = leakybucket.NewCollector(0.000001, 640, false)
+	fetcher.rateLimiter = leakybucket.NewCollector(0.000001, 640, 1*time.Second, false)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

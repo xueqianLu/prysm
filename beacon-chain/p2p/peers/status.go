@@ -29,21 +29,22 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/p2p/enr"
-	"github.com/libp2p/go-libp2p-core/network"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
-	types "github.com/prysmaticlabs/eth2-types"
 	"github.com/prysmaticlabs/go-bitfield"
-	"github.com/prysmaticlabs/prysm/beacon-chain/p2p/peers/peerdata"
-	"github.com/prysmaticlabs/prysm/beacon-chain/p2p/peers/scorers"
-	"github.com/prysmaticlabs/prysm/config/features"
-	"github.com/prysmaticlabs/prysm/config/params"
-	"github.com/prysmaticlabs/prysm/crypto/rand"
-	pb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1/metadata"
-	prysmTime "github.com/prysmaticlabs/prysm/time"
-	"github.com/prysmaticlabs/prysm/time/slots"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/peers/peerdata"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/peers/scorers"
+	"github.com/prysmaticlabs/prysm/v3/config/features"
+	"github.com/prysmaticlabs/prysm/v3/config/params"
+	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v3/crypto/rand"
+	pmath "github.com/prysmaticlabs/prysm/v3/math"
+	pb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1/metadata"
+	prysmTime "github.com/prysmaticlabs/prysm/v3/time"
+	"github.com/prysmaticlabs/prysm/v3/time/slots"
 )
 
 const (
@@ -696,7 +697,7 @@ func (p *Status) BestFinalized(maxPeers int, ourFinalizedEpoch types.Epoch) (typ
 
 // BestNonFinalized returns the highest known epoch, higher than ours,
 // and is shared by at least minPeers.
-func (p *Status) BestNonFinalized(minPeers uint64, ourHeadEpoch types.Epoch) (types.Epoch, []peer.ID) {
+func (p *Status) BestNonFinalized(minPeers int, ourHeadEpoch types.Epoch) (types.Epoch, []peer.ID) {
 	connected := p.Connected()
 	epochVotes := make(map[types.Epoch]uint64)
 	pidEpoch := make(map[peer.ID]types.Epoch, len(connected))
@@ -739,7 +740,7 @@ func (p *Status) BestNonFinalized(minPeers uint64, ourHeadEpoch types.Epoch) (ty
 	return targetEpoch, potentialPIDs
 }
 
-// PeersToPrune selects the most sutiable inbound peers
+// PeersToPrune selects the most suitable inbound peers
 // to disconnect the host peer from. As of this moment
 // the pruning relies on simple heuristics such as
 // bad response count. In the future scoring will be used
@@ -749,12 +750,12 @@ func (p *Status) PeersToPrune() []peer.ID {
 		return p.deprecatedPeersToPrune()
 	}
 	connLimit := p.ConnectedPeerLimit()
-	inBoundLimit := p.InboundLimit()
+	inBoundLimit := uint64(p.InboundLimit())
 	activePeers := p.Active()
-	numInboundPeers := len(p.InboundConnected())
+	numInboundPeers := uint64(len(p.InboundConnected()))
 	// Exit early if we are still below our max
 	// limit.
-	if len(activePeers) <= int(connLimit) {
+	if uint64(len(activePeers)) <= connLimit {
 		return []peer.ID{}
 	}
 	p.store.Lock()
@@ -784,10 +785,15 @@ func (p *Status) PeersToPrune() []peer.ID {
 
 	// Determine amount of peers to prune using our
 	// max connection limit.
-	amountToPrune := len(activePeers) - int(connLimit)
+	amountToPrune, err := pmath.Sub64(uint64(len(activePeers)), connLimit)
+	if err != nil {
+		// This should never happen.
+		log.WithError(err).Error("Failed to determine amount of peers to prune")
+		return []peer.ID{}
+	}
 
 	// Also check for inbound peers above our limit.
-	excessInbound := 0
+	excessInbound := uint64(0)
 	if numInboundPeers > inBoundLimit {
 		excessInbound = numInboundPeers - inBoundLimit
 	}
@@ -796,7 +802,7 @@ func (p *Status) PeersToPrune() []peer.ID {
 	if excessInbound > amountToPrune {
 		amountToPrune = excessInbound
 	}
-	if amountToPrune < len(peersToPrune) {
+	if amountToPrune < uint64(len(peersToPrune)) {
 		peersToPrune = peersToPrune[:amountToPrune]
 	}
 	ids := make([]peer.ID, 0, len(peersToPrune))
@@ -815,7 +821,7 @@ func (p *Status) deprecatedPeersToPrune() []peer.ID {
 	numInboundPeers := len(p.InboundConnected())
 	// Exit early if we are still below our max
 	// limit.
-	if len(activePeers) <= int(connLimit) {
+	if uint64(len(activePeers)) <= connLimit {
 		return []peer.ID{}
 	}
 	p.store.Lock()
@@ -845,18 +851,23 @@ func (p *Status) deprecatedPeersToPrune() []peer.ID {
 
 	// Determine amount of peers to prune using our
 	// max connection limit.
-	amountToPrune := len(activePeers) - int(connLimit)
+	amountToPrune, err := pmath.Sub64(uint64(len(activePeers)), connLimit)
+	if err != nil {
+		// This should never happen
+		log.WithError(err).Error("Failed to determine amount of peers to prune")
+		return []peer.ID{}
+	}
 	// Also check for inbound peers above our limit.
-	excessInbound := 0
+	excessInbound := uint64(0)
 	if numInboundPeers > inBoundLimit {
-		excessInbound = numInboundPeers - inBoundLimit
+		excessInbound = uint64(numInboundPeers - inBoundLimit)
 	}
 	// Prune the largest amount between excess peers and
 	// excess inbound peers.
 	if excessInbound > amountToPrune {
 		amountToPrune = excessInbound
 	}
-	if amountToPrune < len(peersToPrune) {
+	if amountToPrune < uint64(len(peersToPrune)) {
 		peersToPrune = peersToPrune[:amountToPrune]
 	}
 	ids := make([]peer.ID, 0, len(peersToPrune))

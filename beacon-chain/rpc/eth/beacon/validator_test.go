@@ -6,34 +6,40 @@ import (
 	"strings"
 	"testing"
 
-	types "github.com/prysmaticlabs/eth2-types"
-	chainMock "github.com/prysmaticlabs/prysm/beacon-chain/blockchain/testing"
-	rpchelpers "github.com/prysmaticlabs/prysm/beacon-chain/rpc/eth/helpers"
-	"github.com/prysmaticlabs/prysm/beacon-chain/rpc/statefetcher"
-	"github.com/prysmaticlabs/prysm/beacon-chain/rpc/testutil"
-	"github.com/prysmaticlabs/prysm/beacon-chain/state"
-	v1 "github.com/prysmaticlabs/prysm/beacon-chain/state/v1"
-	"github.com/prysmaticlabs/prysm/config/params"
-	ethpb "github.com/prysmaticlabs/prysm/proto/eth/v1"
-	"github.com/prysmaticlabs/prysm/proto/migration"
-	eth "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/testing/assert"
-	"github.com/prysmaticlabs/prysm/testing/require"
-	"github.com/prysmaticlabs/prysm/testing/util"
-	"github.com/prysmaticlabs/prysm/time/slots"
+	chainMock "github.com/prysmaticlabs/prysm/v3/beacon-chain/blockchain/testing"
+	dbTest "github.com/prysmaticlabs/prysm/v3/beacon-chain/db/testing"
+	rpchelpers "github.com/prysmaticlabs/prysm/v3/beacon-chain/rpc/eth/helpers"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/rpc/statefetcher"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/rpc/testutil"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/state"
+	state_native "github.com/prysmaticlabs/prysm/v3/beacon-chain/state/state-native"
+	"github.com/prysmaticlabs/prysm/v3/config/params"
+	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
+	ethpb "github.com/prysmaticlabs/prysm/v3/proto/eth/v1"
+	"github.com/prysmaticlabs/prysm/v3/proto/migration"
+	eth "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v3/testing/assert"
+	"github.com/prysmaticlabs/prysm/v3/testing/require"
+	"github.com/prysmaticlabs/prysm/v3/testing/util"
+	"github.com/prysmaticlabs/prysm/v3/time/slots"
 )
 
 func TestGetValidator(t *testing.T) {
 	ctx := context.Background()
+	db := dbTest.SetupDB(t)
 
 	var st state.BeaconState
 	st, _ = util.DeterministicGenesisState(t, 8192)
 
 	t.Run("Head Get Validator by index", func(t *testing.T) {
+		chainService := &chainMock.ChainService{}
 		s := Server{
 			StateFetcher: &testutil.MockFetcher{
 				BeaconState: st,
 			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
 		}
 
 		resp, err := s.GetValidator(ctx, &ethpb.StateValidatorRequest{
@@ -45,10 +51,14 @@ func TestGetValidator(t *testing.T) {
 	})
 
 	t.Run("Head Get Validator by pubkey", func(t *testing.T) {
+		chainService := &chainMock.ChainService{}
 		s := Server{
 			StateFetcher: &testutil.MockFetcher{
 				BeaconState: st,
 			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
 		}
 
 		pubKey := st.PubkeyAtIndex(types.ValidatorIndex(20))
@@ -66,25 +76,57 @@ func TestGetValidator(t *testing.T) {
 			StateFetcher: &testutil.MockFetcher{
 				BeaconState: st,
 			},
+			HeadFetcher: &chainMock.ChainService{},
+			BeaconDB:    db,
 		}
 		_, err := s.GetValidator(ctx, &ethpb.StateValidatorRequest{
 			StateId: []byte("head"),
 		})
 		require.ErrorContains(t, "Validator ID is required", err)
 	})
-}
 
-func TestListValidators(t *testing.T) {
-	ctx := context.Background()
+	t.Run("execution optimistic", func(t *testing.T) {
+		parentRoot := [32]byte{'a'}
+		blk := util.NewBeaconBlock()
+		blk.Block.ParentRoot = parentRoot[:]
+		root, err := blk.Block.HashTreeRoot()
+		require.NoError(t, err)
+		util.SaveBlock(t, ctx, db, blk)
+		require.NoError(t, db.SaveGenesisBlockRoot(ctx, root))
 
-	var st state.BeaconState
-	st, _ = util.DeterministicGenesisState(t, 8192)
-
-	t.Run("Head List All Validators", func(t *testing.T) {
+		chainService := &chainMock.ChainService{Optimistic: true}
 		s := Server{
 			StateFetcher: &testutil.MockFetcher{
 				BeaconState: st,
 			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
+		}
+		resp, err := s.GetValidator(ctx, &ethpb.StateValidatorRequest{
+			StateId:     []byte("head"),
+			ValidatorId: []byte("15"),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, true, resp.ExecutionOptimistic)
+	})
+}
+
+func TestListValidators(t *testing.T) {
+	ctx := context.Background()
+	db := dbTest.SetupDB(t)
+	var st state.BeaconState
+	st, _ = util.DeterministicGenesisState(t, 8192)
+
+	t.Run("Head List All Validators", func(t *testing.T) {
+		chainService := &chainMock.ChainService{}
+		s := Server{
+			StateFetcher: &testutil.MockFetcher{
+				BeaconState: st,
+			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
 		}
 
 		resp, err := s.ListValidators(ctx, &ethpb.StateValidatorsRequest{
@@ -98,10 +140,14 @@ func TestListValidators(t *testing.T) {
 	})
 
 	t.Run("Head List Validators by index", func(t *testing.T) {
+		chainService := &chainMock.ChainService{}
 		s := Server{
 			StateFetcher: &testutil.MockFetcher{
 				BeaconState: st,
 			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
 		}
 
 		ids := [][]byte{[]byte("15"), []byte("26"), []byte("400")}
@@ -118,10 +164,14 @@ func TestListValidators(t *testing.T) {
 	})
 
 	t.Run("Head List Validators by pubkey", func(t *testing.T) {
+		chainService := &chainMock.ChainService{}
 		s := Server{
 			StateFetcher: &testutil.MockFetcher{
 				BeaconState: st,
 			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
 		}
 		idNums := []types.ValidatorIndex{20, 66, 90, 100}
 		pubkey1 := st.PubkeyAtIndex(types.ValidatorIndex(20))
@@ -142,10 +192,14 @@ func TestListValidators(t *testing.T) {
 	})
 
 	t.Run("Head List Validators by both index and pubkey", func(t *testing.T) {
+		chainService := &chainMock.ChainService{}
 		s := Server{
 			StateFetcher: &testutil.MockFetcher{
 				BeaconState: st,
 			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
 		}
 
 		idNums := []types.ValidatorIndex{20, 90, 170, 129}
@@ -168,10 +222,14 @@ func TestListValidators(t *testing.T) {
 	})
 
 	t.Run("Unknown public key is ignored", func(t *testing.T) {
+		chainService := &chainMock.ChainService{}
 		s := Server{
 			StateFetcher: &testutil.MockFetcher{
 				BeaconState: st,
 			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
 		}
 
 		existingKey := st.PubkeyAtIndex(types.ValidatorIndex(1))
@@ -186,10 +244,14 @@ func TestListValidators(t *testing.T) {
 	})
 
 	t.Run("Unknown index is ignored", func(t *testing.T) {
+		chainService := &chainMock.ChainService{}
 		s := Server{
 			StateFetcher: &testutil.MockFetcher{
 				BeaconState: st,
 			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
 		}
 
 		ids := [][]byte{[]byte("1"), []byte("99999")}
@@ -201,10 +263,36 @@ func TestListValidators(t *testing.T) {
 		require.Equal(t, 1, len(resp.Data))
 		assert.Equal(t, types.ValidatorIndex(1), resp.Data[0].Index)
 	})
+
+	t.Run("execution optimistic", func(t *testing.T) {
+		parentRoot := [32]byte{'a'}
+		blk := util.NewBeaconBlock()
+		blk.Block.ParentRoot = parentRoot[:]
+		root, err := blk.Block.HashTreeRoot()
+		require.NoError(t, err)
+		util.SaveBlock(t, ctx, db, blk)
+		require.NoError(t, db.SaveGenesisBlockRoot(ctx, root))
+
+		chainService := &chainMock.ChainService{Optimistic: true}
+		s := Server{
+			StateFetcher: &testutil.MockFetcher{
+				BeaconState: st,
+			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
+		}
+		resp, err := s.ListValidators(ctx, &ethpb.StateValidatorsRequest{
+			StateId: []byte("head"),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, true, resp.ExecutionOptimistic)
+	})
 }
 
 func TestListValidators_Status(t *testing.T) {
 	ctx := context.Background()
+	db := dbTest.SetupDB(t)
 
 	var st state.BeaconState
 	st, _ = util.DeterministicGenesisState(t, 8192)
@@ -275,10 +363,14 @@ func TestListValidators_Status(t *testing.T) {
 	}
 
 	t.Run("Head List All ACTIVE Validators", func(t *testing.T) {
+		chainService := &chainMock.ChainService{}
 		s := Server{
 			StateFetcher: &statefetcher.StateProvider{
 				ChainInfoFetcher: &chainMock.ChainService{State: st},
 			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
 		}
 
 		resp, err := s.ListValidators(ctx, &ethpb.StateValidatorsRequest{
@@ -288,7 +380,7 @@ func TestListValidators_Status(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, len(resp.Data), 8192+2 /* 2 active */)
 		for _, datum := range resp.Data {
-			readOnlyVal, err := v1.NewValidator(migration.V1ValidatorToV1Alpha1(datum.Validator))
+			readOnlyVal, err := state_native.NewValidator(migration.V1ValidatorToV1Alpha1(datum.Validator))
 			require.NoError(t, err)
 			status, err := rpchelpers.ValidatorStatus(readOnlyVal, 0)
 			require.NoError(t, err)
@@ -308,10 +400,14 @@ func TestListValidators_Status(t *testing.T) {
 	})
 
 	t.Run("Head List All ACTIVE_ONGOING Validators", func(t *testing.T) {
+		chainService := &chainMock.ChainService{}
 		s := Server{
 			StateFetcher: &statefetcher.StateProvider{
 				ChainInfoFetcher: &chainMock.ChainService{State: st},
 			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
 		}
 
 		resp, err := s.ListValidators(ctx, &ethpb.StateValidatorsRequest{
@@ -321,7 +417,7 @@ func TestListValidators_Status(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, len(resp.Data), 8192+1 /* 1 active_ongoing */)
 		for _, datum := range resp.Data {
-			readOnlyVal, err := v1.NewValidator(migration.V1ValidatorToV1Alpha1(datum.Validator))
+			readOnlyVal, err := state_native.NewValidator(migration.V1ValidatorToV1Alpha1(datum.Validator))
 			require.NoError(t, err)
 			status, err := rpchelpers.ValidatorSubStatus(readOnlyVal, 0)
 			require.NoError(t, err)
@@ -340,10 +436,14 @@ func TestListValidators_Status(t *testing.T) {
 
 	require.NoError(t, st.SetSlot(params.BeaconConfig().SlotsPerEpoch*35))
 	t.Run("Head List All EXITED Validators", func(t *testing.T) {
+		chainService := &chainMock.ChainService{}
 		s := Server{
 			StateFetcher: &statefetcher.StateProvider{
 				ChainInfoFetcher: &chainMock.ChainService{State: st},
 			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
 		}
 
 		resp, err := s.ListValidators(ctx, &ethpb.StateValidatorsRequest{
@@ -353,7 +453,7 @@ func TestListValidators_Status(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 4 /* 4 exited */, len(resp.Data))
 		for _, datum := range resp.Data {
-			readOnlyVal, err := v1.NewValidator(migration.V1ValidatorToV1Alpha1(datum.Validator))
+			readOnlyVal, err := state_native.NewValidator(migration.V1ValidatorToV1Alpha1(datum.Validator))
 			require.NoError(t, err)
 			status, err := rpchelpers.ValidatorStatus(readOnlyVal, 35)
 			require.NoError(t, err)
@@ -371,10 +471,14 @@ func TestListValidators_Status(t *testing.T) {
 	})
 
 	t.Run("Head List All PENDING_INITIALIZED and EXITED_UNSLASHED Validators", func(t *testing.T) {
+		chainService := &chainMock.ChainService{}
 		s := Server{
 			StateFetcher: &statefetcher.StateProvider{
 				ChainInfoFetcher: &chainMock.ChainService{State: st},
 			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
 		}
 
 		resp, err := s.ListValidators(ctx, &ethpb.StateValidatorsRequest{
@@ -384,7 +488,7 @@ func TestListValidators_Status(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 4 /* 4 exited */, len(resp.Data))
 		for _, datum := range resp.Data {
-			readOnlyVal, err := v1.NewValidator(migration.V1ValidatorToV1Alpha1(datum.Validator))
+			readOnlyVal, err := state_native.NewValidator(migration.V1ValidatorToV1Alpha1(datum.Validator))
 			require.NoError(t, err)
 			status, err := rpchelpers.ValidatorSubStatus(readOnlyVal, 35)
 			require.NoError(t, err)
@@ -402,10 +506,14 @@ func TestListValidators_Status(t *testing.T) {
 	})
 
 	t.Run("Head List All PENDING and EXITED Validators", func(t *testing.T) {
+		chainService := &chainMock.ChainService{}
 		s := Server{
 			StateFetcher: &statefetcher.StateProvider{
 				ChainInfoFetcher: &chainMock.ChainService{State: st},
 			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
 		}
 
 		resp, err := s.ListValidators(ctx, &ethpb.StateValidatorsRequest{
@@ -415,7 +523,7 @@ func TestListValidators_Status(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 2 /* 1 pending, 1 exited */, len(resp.Data))
 		for _, datum := range resp.Data {
-			readOnlyVal, err := v1.NewValidator(migration.V1ValidatorToV1Alpha1(datum.Validator))
+			readOnlyVal, err := state_native.NewValidator(migration.V1ValidatorToV1Alpha1(datum.Validator))
 			require.NoError(t, err)
 			status, err := rpchelpers.ValidatorStatus(readOnlyVal, 35)
 			require.NoError(t, err)
@@ -436,6 +544,7 @@ func TestListValidators_Status(t *testing.T) {
 }
 func TestListValidatorBalances(t *testing.T) {
 	ctx := context.Background()
+	db := dbTest.SetupDB(t)
 
 	var st state.BeaconState
 	count := uint64(8192)
@@ -447,10 +556,14 @@ func TestListValidatorBalances(t *testing.T) {
 	require.NoError(t, st.SetBalances(balances))
 
 	t.Run("Head List Validators Balance by index", func(t *testing.T) {
+		chainService := &chainMock.ChainService{}
 		s := Server{
 			StateFetcher: &testutil.MockFetcher{
 				BeaconState: st,
 			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
 		}
 
 		ids := [][]byte{[]byte("15"), []byte("26"), []byte("400")}
@@ -467,10 +580,14 @@ func TestListValidatorBalances(t *testing.T) {
 	})
 
 	t.Run("Head List Validators Balance by pubkey", func(t *testing.T) {
+		chainService := &chainMock.ChainService{}
 		s := Server{
 			StateFetcher: &testutil.MockFetcher{
 				BeaconState: st,
 			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
 		}
 		idNums := []types.ValidatorIndex{20, 66, 90, 100}
 		pubkey1 := st.PubkeyAtIndex(types.ValidatorIndex(20))
@@ -490,10 +607,14 @@ func TestListValidatorBalances(t *testing.T) {
 	})
 
 	t.Run("Head List Validators Balance by both index and pubkey", func(t *testing.T) {
+		chainService := &chainMock.ChainService{}
 		s := Server{
 			StateFetcher: &testutil.MockFetcher{
 				BeaconState: st,
 			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
 		}
 
 		idNums := []types.ValidatorIndex{20, 90, 170, 129}
@@ -510,20 +631,53 @@ func TestListValidatorBalances(t *testing.T) {
 			assert.Equal(t, balances[val.Index], val.Balance)
 		}
 	})
+
+	t.Run("execution optimistic", func(t *testing.T) {
+		parentRoot := [32]byte{'a'}
+		blk := util.NewBeaconBlock()
+		blk.Block.ParentRoot = parentRoot[:]
+		root, err := blk.Block.HashTreeRoot()
+		require.NoError(t, err)
+		util.SaveBlock(t, ctx, db, blk)
+		require.NoError(t, db.SaveGenesisBlockRoot(ctx, root))
+
+		chainService := &chainMock.ChainService{Optimistic: true}
+		s := Server{
+			StateFetcher: &testutil.MockFetcher{
+				BeaconState: st,
+			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
+		}
+
+		ids := [][]byte{[]byte("15"), []byte("26"), []byte("400")}
+		resp, err := s.ListValidatorBalances(ctx, &ethpb.ValidatorBalancesRequest{
+			StateId: []byte("head"),
+			Id:      ids,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, true, resp.ExecutionOptimistic)
+	})
 }
 
 func TestListCommittees(t *testing.T) {
 	ctx := context.Background()
+	db := dbTest.SetupDB(t)
 
 	var st state.BeaconState
 	st, _ = util.DeterministicGenesisState(t, 8192)
 	epoch := slots.ToEpoch(st.Slot())
 
 	t.Run("Head All Committees", func(t *testing.T) {
+		chainService := &chainMock.ChainService{}
 		s := Server{
 			StateFetcher: &testutil.MockFetcher{
 				BeaconState: st,
 			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
 		}
 
 		resp, err := s.ListCommittees(ctx, &ethpb.StateCommitteesRequest{
@@ -538,10 +692,14 @@ func TestListCommittees(t *testing.T) {
 	})
 
 	t.Run("Head All Committees of Epoch 10", func(t *testing.T) {
+		chainService := &chainMock.ChainService{}
 		s := Server{
 			StateFetcher: &testutil.MockFetcher{
 				BeaconState: st,
 			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
 		}
 		epoch := types.Epoch(10)
 		resp, err := s.ListCommittees(ctx, &ethpb.StateCommitteesRequest{
@@ -555,10 +713,14 @@ func TestListCommittees(t *testing.T) {
 	})
 
 	t.Run("Head All Committees of Slot 4", func(t *testing.T) {
+		chainService := &chainMock.ChainService{}
 		s := Server{
 			StateFetcher: &testutil.MockFetcher{
 				BeaconState: st,
 			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
 		}
 
 		slot := types.Slot(4)
@@ -578,10 +740,14 @@ func TestListCommittees(t *testing.T) {
 	})
 
 	t.Run("Head All Committees of Index 1", func(t *testing.T) {
+		chainService := &chainMock.ChainService{}
 		s := Server{
 			StateFetcher: &testutil.MockFetcher{
 				BeaconState: st,
 			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
 		}
 
 		index := types.CommitteeIndex(1)
@@ -601,10 +767,14 @@ func TestListCommittees(t *testing.T) {
 	})
 
 	t.Run("Head All Committees of Slot 2, Index 1", func(t *testing.T) {
+		chainService := &chainMock.ChainService{}
 		s := Server{
 			StateFetcher: &testutil.MockFetcher{
 				BeaconState: st,
 			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
 		}
 
 		index := types.CommitteeIndex(1)
@@ -621,5 +791,31 @@ func TestListCommittees(t *testing.T) {
 			assert.Equal(t, slot, datum.Slot)
 			assert.Equal(t, index, datum.Index)
 		}
+	})
+
+	t.Run("execution optimistic", func(t *testing.T) {
+		parentRoot := [32]byte{'a'}
+		blk := util.NewBeaconBlock()
+		blk.Block.ParentRoot = parentRoot[:]
+		root, err := blk.Block.HashTreeRoot()
+		require.NoError(t, err)
+		util.SaveBlock(t, ctx, db, blk)
+		require.NoError(t, db.SaveGenesisBlockRoot(ctx, root))
+
+		chainService := &chainMock.ChainService{Optimistic: true}
+		s := Server{
+			StateFetcher: &testutil.MockFetcher{
+				BeaconState: st,
+			},
+			HeadFetcher:           chainService,
+			OptimisticModeFetcher: chainService,
+			BeaconDB:              db,
+		}
+
+		resp, err := s.ListCommittees(ctx, &ethpb.StateCommitteesRequest{
+			StateId: []byte("head"),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, true, resp.ExecutionOptimistic)
 	})
 }

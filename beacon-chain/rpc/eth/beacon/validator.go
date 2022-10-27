@@ -5,16 +5,16 @@ import (
 	"strconv"
 
 	"github.com/pkg/errors"
-	types "github.com/prysmaticlabs/eth2-types"
-	corehelpers "github.com/prysmaticlabs/prysm/beacon-chain/core/helpers"
-	"github.com/prysmaticlabs/prysm/beacon-chain/rpc/eth/helpers"
-	"github.com/prysmaticlabs/prysm/beacon-chain/state"
-	v1 "github.com/prysmaticlabs/prysm/beacon-chain/state/v1"
-	"github.com/prysmaticlabs/prysm/config/params"
-	"github.com/prysmaticlabs/prysm/encoding/bytesutil"
-	ethpb "github.com/prysmaticlabs/prysm/proto/eth/v1"
-	"github.com/prysmaticlabs/prysm/proto/migration"
-	"github.com/prysmaticlabs/prysm/time/slots"
+	corehelpers "github.com/prysmaticlabs/prysm/v3/beacon-chain/core/helpers"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/rpc/eth/helpers"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/state"
+	statenative "github.com/prysmaticlabs/prysm/v3/beacon-chain/state/state-native"
+	"github.com/prysmaticlabs/prysm/v3/config/params"
+	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
+	ethpb "github.com/prysmaticlabs/prysm/v3/proto/eth/v1"
+	"github.com/prysmaticlabs/prysm/v3/proto/migration"
+	"github.com/prysmaticlabs/prysm/v3/time/slots"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -56,7 +56,13 @@ func (bs *Server) GetValidator(ctx context.Context, req *ethpb.StateValidatorReq
 	if len(valContainer) == 0 {
 		return nil, status.Error(codes.NotFound, "Could not find validator")
 	}
-	return &ethpb.StateValidatorResponse{Data: valContainer[0]}, nil
+
+	isOptimistic, err := helpers.IsOptimistic(ctx, st, bs.OptimisticModeFetcher)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Could not check if slot's block is optimistic: %v", err)
+	}
+
+	return &ethpb.StateValidatorResponse{Data: valContainer[0], ExecutionOptimistic: isOptimistic}, nil
 }
 
 // ListValidators returns filterable list of validators with their balance, status and index.
@@ -74,9 +80,14 @@ func (bs *Server) ListValidators(ctx context.Context, req *ethpb.StateValidators
 		return nil, handleValContainerErr(err)
 	}
 
+	isOptimistic, err := helpers.IsOptimistic(ctx, st, bs.OptimisticModeFetcher)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Could not check if slot's block is optimistic: %v", err)
+	}
+
 	// Exit early if no matching validators we found or we don't want to further filter validators by status.
 	if len(valContainers) == 0 || len(req.Status) == 0 {
-		return &ethpb.StateValidatorsResponse{Data: valContainers}, nil
+		return &ethpb.StateValidatorsResponse{Data: valContainers, ExecutionOptimistic: isOptimistic}, nil
 	}
 
 	filterStatus := make(map[ethpb.ValidatorStatus]bool, len(req.Status))
@@ -90,7 +101,7 @@ func (bs *Server) ListValidators(ctx context.Context, req *ethpb.StateValidators
 	epoch := slots.ToEpoch(st.Slot())
 	filteredVals := make([]*ethpb.ValidatorContainer, 0, len(valContainers))
 	for _, vc := range valContainers {
-		readOnlyVal, err := v1.NewValidator(migration.V1ValidatorToV1Alpha1(vc.Validator))
+		readOnlyVal, err := statenative.NewValidator(migration.V1ValidatorToV1Alpha1(vc.Validator))
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "Could not convert validator: %v", err)
 		}
@@ -106,7 +117,8 @@ func (bs *Server) ListValidators(ctx context.Context, req *ethpb.StateValidators
 			filteredVals = append(filteredVals, vc)
 		}
 	}
-	return &ethpb.StateValidatorsResponse{Data: filteredVals}, nil
+
+	return &ethpb.StateValidatorsResponse{Data: filteredVals, ExecutionOptimistic: isOptimistic}, nil
 }
 
 // ListValidatorBalances returns a filterable list of validator balances.
@@ -130,7 +142,13 @@ func (bs *Server) ListValidatorBalances(ctx context.Context, req *ethpb.Validato
 			Balance: valContainers[i].Balance,
 		}
 	}
-	return &ethpb.ValidatorBalancesResponse{Data: valBalances}, nil
+
+	isOptimistic, err := helpers.IsOptimistic(ctx, st, bs.OptimisticModeFetcher)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Could not check if slot's block is optimistic: %v", err)
+	}
+
+	return &ethpb.ValidatorBalancesResponse{Data: valBalances, ExecutionOptimistic: isOptimistic}, nil
 }
 
 // ListCommittees retrieves the committees for the given state at the given epoch.
@@ -183,7 +201,13 @@ func (bs *Server) ListCommittees(ctx context.Context, req *ethpb.StateCommittees
 			committees = append(committees, committeeContainer)
 		}
 	}
-	return &ethpb.StateCommitteesResponse{Data: committees}, nil
+
+	isOptimistic, err := helpers.IsOptimistic(ctx, st, bs.OptimisticModeFetcher)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Could not check if slot's block is optimistic: %v", err)
+	}
+
+	return &ethpb.StateCommitteesResponse{Data: committees, ExecutionOptimistic: isOptimistic}, nil
 }
 
 // This function returns the validator object based on the passed in ID. The validator ID could be its public key,
@@ -196,7 +220,7 @@ func valContainersByRequestIds(state state.BeaconState, validatorIds [][]byte) (
 		allValidators := state.Validators()
 		valContainers = make([]*ethpb.ValidatorContainer, len(allValidators))
 		for i, validator := range allValidators {
-			readOnlyVal, err := v1.NewValidator(validator)
+			readOnlyVal, err := statenative.NewValidator(validator)
 			if err != nil {
 				return nil, status.Errorf(codes.Internal, "Could not convert validator: %v", err)
 			}
@@ -231,7 +255,7 @@ func valContainersByRequestIds(state state.BeaconState, validatorIds [][]byte) (
 				valIndex = types.ValidatorIndex(index)
 			}
 			validator, err := state.ValidatorAtIndex(valIndex)
-			if _, ok := err.(*v1.ValidatorIndexOutOfRangeError); ok {
+			if _, ok := err.(*statenative.ValidatorIndexOutOfRangeError); ok {
 				// Ignore well-formed yet unknown indexes.
 				continue
 			}
@@ -239,7 +263,7 @@ func valContainersByRequestIds(state state.BeaconState, validatorIds [][]byte) (
 				return nil, errors.Wrap(err, "could not get validator")
 			}
 			v1Validator := migration.V1Alpha1ValidatorToV1(validator)
-			readOnlyVal, err := v1.NewValidator(validator)
+			readOnlyVal, err := statenative.NewValidator(validator)
 			if err != nil {
 				return nil, status.Errorf(codes.Internal, "Could not convert validator: %v", err)
 			}
@@ -260,7 +284,7 @@ func valContainersByRequestIds(state state.BeaconState, validatorIds [][]byte) (
 }
 
 func handleValContainerErr(err error) error {
-	if outOfRangeErr, ok := err.(*v1.ValidatorIndexOutOfRangeError); ok {
+	if outOfRangeErr, ok := err.(*statenative.ValidatorIndexOutOfRangeError); ok {
 		return status.Errorf(codes.InvalidArgument, "Invalid validator ID: %v", outOfRangeErr)
 	}
 	if invalidIdErr, ok := err.(*invalidValidatorIdError); ok {

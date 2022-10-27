@@ -13,20 +13,21 @@ import (
 	"github.com/patrickmn/go-cache"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	types "github.com/prysmaticlabs/eth2-types"
-	"github.com/prysmaticlabs/prysm/async/event"
-	"github.com/prysmaticlabs/prysm/beacon-chain/blockchain"
-	"github.com/prysmaticlabs/prysm/beacon-chain/cache/depositcache"
-	"github.com/prysmaticlabs/prysm/beacon-chain/core/feed"
-	statefeed "github.com/prysmaticlabs/prysm/beacon-chain/core/feed/state"
-	"github.com/prysmaticlabs/prysm/beacon-chain/core/helpers"
-	coreTime "github.com/prysmaticlabs/prysm/beacon-chain/core/time"
-	"github.com/prysmaticlabs/prysm/beacon-chain/db"
-	"github.com/prysmaticlabs/prysm/beacon-chain/powchain"
-	"github.com/prysmaticlabs/prysm/beacon-chain/state"
-	"github.com/prysmaticlabs/prysm/config/params"
-	"github.com/prysmaticlabs/prysm/encoding/bytesutil"
-	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v3/async/event"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/blockchain"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/cache/depositcache"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/feed"
+	statefeed "github.com/prysmaticlabs/prysm/v3/beacon-chain/core/feed/state"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/helpers"
+	coreTime "github.com/prysmaticlabs/prysm/v3/beacon-chain/core/time"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/db"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/execution"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/state"
+	fieldparams "github.com/prysmaticlabs/prysm/v3/config/fieldparams"
+	"github.com/prysmaticlabs/prysm/v3/config/params"
+	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
+	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -36,7 +37,7 @@ type infostream struct {
 	ctx                 context.Context
 	headFetcher         blockchain.HeadFetcher
 	depositFetcher      depositcache.DepositFetcher
-	blockFetcher        powchain.POWBlockFetcher
+	blockFetcher        execution.POWBlockFetcher
 	beaconDB            db.ReadOnlyDatabase
 	pubKeys             [][]byte
 	pubKeysMutex        *sync.RWMutex
@@ -192,7 +193,7 @@ func (is *infostream) handleMessage(msg *ethpb.ValidatorChangeSet) {
 func (is *infostream) handleAddValidatorKeys(reqPubKeys [][]byte) error {
 	is.pubKeysMutex.Lock()
 	// Create existence map to ensure we don't duplicate keys.
-	pubKeysMap := make(map[[48]byte]bool, len(is.pubKeys))
+	pubKeysMap := make(map[[fieldparams.BLSPubkeyLength]byte]bool, len(is.pubKeys))
 	for _, pubKey := range is.pubKeys {
 		pubKeysMap[bytesutil.ToBytes48(pubKey)] = true
 	}
@@ -222,7 +223,7 @@ func (is *infostream) handleSetValidatorKeys(reqPubKeys [][]byte) error {
 func (is *infostream) handleRemoveValidatorKeys(reqPubKeys [][]byte) {
 	is.pubKeysMutex.Lock()
 	// Create existence map to track what we have to delete.
-	pubKeysMap := make(map[[48]byte]bool, len(reqPubKeys))
+	pubKeysMap := make(map[[fieldparams.BLSPubkeyLength]byte]bool, len(reqPubKeys))
 	for _, pubKey := range reqPubKeys {
 		pubKeysMap[bytesutil.ToBytes48(pubKey)] = true
 	}
@@ -376,7 +377,7 @@ func (is *infostream) generatePendingValidatorInfo(info *ethpb.ValidatorInfo) (*
 
 func (is *infostream) calculateActivationTimeForPendingValidators(res []*ethpb.ValidatorInfo, headState state.ReadOnlyBeaconState, epoch types.Epoch) error {
 	// pendingValidatorsMap is map from the validator pubkey to the index in our return array
-	pendingValidatorsMap := make(map[[48]byte]int)
+	pendingValidatorsMap := make(map[[fieldparams.BLSPubkeyLength]byte]int)
 	for i, info := range res {
 		if info.Status == ethpb.ValidatorStatus_PENDING {
 			pendingValidatorsMap[bytesutil.ToBytes48(info.PublicKey)] = i
@@ -490,6 +491,9 @@ func (is *infostream) calculateStatusAndTransition(validator state.ReadOnlyValid
 	}
 
 	if currentEpoch < validator.ActivationEligibilityEpoch() {
+		if validator.EffectiveBalance() == 0 {
+			return ethpb.ValidatorStatus_PENDING, 0
+		}
 		if helpers.IsEligibleForActivationQueueUsingTrie(validator) {
 			return ethpb.ValidatorStatus_DEPOSITED, is.epochToTimestamp(validator.ActivationEligibilityEpoch())
 		}
@@ -541,7 +545,7 @@ func (is *infostream) depositQueueTimestamp(eth1BlockNumber *big.Int) (uint64, e
 	is.eth1BlocktimesMutex.Unlock()
 
 	followTime := time.Duration(params.BeaconConfig().Eth1FollowDistance*params.BeaconConfig().SecondsPerETH1Block) * time.Second
-	eth1UnixTime := time.Unix(int64(blockTimestamp), 0).Add(followTime)
+	eth1UnixTime := time.Unix(int64(blockTimestamp), 0).Add(followTime) // lint:ignore uintcast -- timestamp will not exceed int64 in your lifetime
 
 	period := uint64(params.BeaconConfig().EpochsPerEth1VotingPeriod.Mul(uint64(params.BeaconConfig().SlotsPerEpoch)))
 	votingPeriod := time.Duration(period*params.BeaconConfig().SecondsPerSlot) * time.Second

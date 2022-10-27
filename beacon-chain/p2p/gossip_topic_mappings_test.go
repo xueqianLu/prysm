@@ -4,14 +4,15 @@ import (
 	"reflect"
 	"testing"
 
-	eth2types "github.com/prysmaticlabs/eth2-types"
-	"github.com/prysmaticlabs/prysm/config/params"
-	"github.com/prysmaticlabs/prysm/encoding/bytesutil"
-	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/testing/assert"
+	"github.com/prysmaticlabs/prysm/v3/config/params"
+	eth2types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
+	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v3/testing/assert"
 )
 
 func TestMappingHasNoDuplicates(t *testing.T) {
+	params.SetupTestConfigCleanup(t)
 	m := make(map[reflect.Type]bool)
 	for _, v := range gossipTopicMappings {
 		if _, ok := m[reflect.TypeOf(v)]; ok {
@@ -23,19 +24,29 @@ func TestMappingHasNoDuplicates(t *testing.T) {
 
 func TestGossipTopicMappings_CorrectBlockType(t *testing.T) {
 	params.SetupTestConfigCleanup(t)
-	bCfg := params.BeaconConfig()
-	forkEpoch := eth2types.Epoch(100)
-	bCfg.AltairForkEpoch = forkEpoch
+	bCfg := params.BeaconConfig().Copy()
+	altairForkEpoch := eth2types.Epoch(100)
+	BellatrixForkEpoch := eth2types.Epoch(200)
+
+	bCfg.AltairForkEpoch = altairForkEpoch
+	bCfg.BellatrixForkEpoch = BellatrixForkEpoch
 	bCfg.ForkVersionSchedule[bytesutil.ToBytes4(bCfg.AltairForkVersion)] = eth2types.Epoch(100)
+	bCfg.ForkVersionSchedule[bytesutil.ToBytes4(bCfg.BellatrixForkVersion)] = eth2types.Epoch(200)
 	params.OverrideBeaconConfig(bCfg)
 
-	// Before Fork
+	// Phase 0
 	pMessage := GossipTopicMappings(BlockSubnetTopicFormat, 0)
 	_, ok := pMessage.(*ethpb.SignedBeaconBlock)
 	assert.Equal(t, true, ok)
 
-	// After Fork
-	pMessage = GossipTopicMappings(BlockSubnetTopicFormat, forkEpoch)
+	// Altair Fork
+	pMessage = GossipTopicMappings(BlockSubnetTopicFormat, altairForkEpoch)
 	_, ok = pMessage.(*ethpb.SignedBeaconBlockAltair)
 	assert.Equal(t, true, ok)
+
+	// Bellatrix Fork
+	pMessage = GossipTopicMappings(BlockSubnetTopicFormat, BellatrixForkEpoch)
+	_, ok = pMessage.(*ethpb.SignedBeaconBlockBellatrix)
+	assert.Equal(t, true, ok)
+
 }

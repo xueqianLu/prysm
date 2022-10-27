@@ -6,12 +6,12 @@ import (
 	"sort"
 	"time"
 
-	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/prysmaticlabs/prysm/beacon-chain/p2p/peers/peerdata"
-	"github.com/prysmaticlabs/prysm/cmd/beacon-chain/flags"
-	"github.com/prysmaticlabs/prysm/config/features"
-	"github.com/prysmaticlabs/prysm/crypto/rand"
-	prysmTime "github.com/prysmaticlabs/prysm/time"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/peers/peerdata"
+	"github.com/prysmaticlabs/prysm/v3/cmd/beacon-chain/flags"
+	"github.com/prysmaticlabs/prysm/v3/config/features"
+	"github.com/prysmaticlabs/prysm/v3/crypto/rand"
+	prysmTime "github.com/prysmaticlabs/prysm/v3/time"
 )
 
 var _ Scorer = (*BlockProviderScorer)(nil)
@@ -85,7 +85,7 @@ func newBlockProviderScorer(store *peerdata.Store, config *BlockProviderScorerCo
 	if scorer.config.StalePeerRefreshInterval == 0 {
 		scorer.config.StalePeerRefreshInterval = DefaultBlockProviderStalePeerRefreshInterval
 	}
-	batchSize := flags.Get().BlockBatchLimit
+	batchSize := uint64(flags.Get().BlockBatchLimit)
 	scorer.maxScore = 1.0
 	if batchSize > 0 {
 		totalBatches := float64(scorer.config.ProcessedBlocksCap / batchSize)
@@ -110,7 +110,7 @@ func (s *BlockProviderScorer) score(pid peer.ID) float64 {
 	if !ok || time.Since(peerData.BlockProviderUpdated) >= s.config.StalePeerRefreshInterval {
 		return s.maxScore
 	}
-	batchSize := flags.Get().BlockBatchLimit
+	batchSize := uint64(flags.Get().BlockBatchLimit)
 	if batchSize > 0 {
 		processedBatches := float64(peerData.ProcessedBlocks / batchSize)
 		score += processedBatches * s.config.ProcessedBatchWeight

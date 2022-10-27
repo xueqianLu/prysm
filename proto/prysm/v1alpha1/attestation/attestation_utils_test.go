@@ -4,13 +4,14 @@ import (
 	"context"
 	"testing"
 
-	types "github.com/prysmaticlabs/eth2-types"
 	"github.com/prysmaticlabs/go-bitfield"
-	"github.com/prysmaticlabs/prysm/config/params"
-	eth "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1/attestation"
-	"github.com/prysmaticlabs/prysm/testing/assert"
-	"github.com/prysmaticlabs/prysm/testing/require"
+	fieldparams "github.com/prysmaticlabs/prysm/v3/config/fieldparams"
+	"github.com/prysmaticlabs/prysm/v3/config/params"
+	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
+	eth "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1/attestation"
+	"github.com/prysmaticlabs/prysm/v3/testing/assert"
+	"github.com/prysmaticlabs/prysm/v3/testing/require"
 )
 
 func TestAttestingIndices(t *testing.T) {
@@ -74,7 +75,7 @@ func TestIsValidAttestationIndices(t *testing.T) {
 				Data: &eth.AttestationData{
 					Target: &eth.Checkpoint{},
 				},
-				Signature: make([]byte, 96),
+				Signature: make([]byte, fieldparams.BLSSignatureLength),
 			},
 			wantedErr: "nil or missing indexed attestation data",
 		},
@@ -85,7 +86,7 @@ func TestIsValidAttestationIndices(t *testing.T) {
 				Data: &eth.AttestationData{
 					Target: &eth.Checkpoint{},
 				},
-				Signature: make([]byte, 96),
+				Signature: make([]byte, fieldparams.BLSSignatureLength),
 			},
 			wantedErr: "expected non-empty",
 		},
@@ -96,7 +97,7 @@ func TestIsValidAttestationIndices(t *testing.T) {
 				Data: &eth.AttestationData{
 					Target: &eth.Checkpoint{},
 				},
-				Signature: make([]byte, 96),
+				Signature: make([]byte, fieldparams.BLSSignatureLength),
 			},
 			wantedErr: "indices count exceeds",
 		},
@@ -107,7 +108,7 @@ func TestIsValidAttestationIndices(t *testing.T) {
 				Data: &eth.AttestationData{
 					Target: &eth.Checkpoint{},
 				},
-				Signature: make([]byte, 96),
+				Signature: make([]byte, fieldparams.BLSSignatureLength),
 			},
 			wantedErr: "not uniquely sorted",
 		},
@@ -118,7 +119,7 @@ func TestIsValidAttestationIndices(t *testing.T) {
 				Data: &eth.AttestationData{
 					Target: &eth.Checkpoint{},
 				},
-				Signature: make([]byte, 96),
+				Signature: make([]byte, fieldparams.BLSSignatureLength),
 			},
 		},
 		{
@@ -128,7 +129,7 @@ func TestIsValidAttestationIndices(t *testing.T) {
 				Data: &eth.AttestationData{
 					Target: &eth.Checkpoint{},
 				},
-				Signature: make([]byte, 96),
+				Signature: make([]byte, fieldparams.BLSSignatureLength),
 			},
 		},
 		{
@@ -138,7 +139,7 @@ func TestIsValidAttestationIndices(t *testing.T) {
 				Data: &eth.AttestationData{
 					Target: &eth.Checkpoint{},
 				},
-				Signature: make([]byte, 96),
+				Signature: make([]byte, fieldparams.BLSSignatureLength),
 			},
 		},
 	}
@@ -175,7 +176,7 @@ func BenchmarkIsValidAttestationIndices(b *testing.B) {
 		Data: &eth.AttestationData{
 			Target: &eth.Checkpoint{},
 		},
-		Signature: make([]byte, 96),
+		Signature: make([]byte, fieldparams.BLSSignatureLength),
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

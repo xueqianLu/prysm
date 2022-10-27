@@ -3,9 +3,9 @@ package p2p
 import (
 	"reflect"
 
-	types "github.com/prysmaticlabs/eth2-types"
-	"github.com/prysmaticlabs/prysm/config/params"
-	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v3/config/params"
+	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
+	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -25,8 +25,13 @@ var gossipTopicMappings = map[string]proto.Message{
 // GossipTopicMappings is a function to return the assigned data type
 // versioned by epoch.
 func GossipTopicMappings(topic string, epoch types.Epoch) proto.Message {
-	if topic == BlockSubnetTopicFormat && epoch >= params.BeaconConfig().AltairForkEpoch {
-		return &ethpb.SignedBeaconBlockAltair{}
+	if topic == BlockSubnetTopicFormat {
+		if epoch >= params.BeaconConfig().BellatrixForkEpoch {
+			return &ethpb.SignedBeaconBlockBellatrix{}
+		}
+		if epoch >= params.BeaconConfig().AltairForkEpoch {
+			return &ethpb.SignedBeaconBlockAltair{}
+		}
 	}
 	return gossipTopicMappings[topic]
 }
@@ -49,6 +54,9 @@ func init() {
 	for k, v := range gossipTopicMappings {
 		GossipTypeMapping[reflect.TypeOf(v)] = k
 	}
-	// Specially handle Altair Objects.
+	// Specially handle Altair objects.
 	GossipTypeMapping[reflect.TypeOf(&ethpb.SignedBeaconBlockAltair{})] = BlockSubnetTopicFormat
+	// Specially handle Bellatrix objects.
+	GossipTypeMapping[reflect.TypeOf(&ethpb.SignedBeaconBlockBellatrix{})] = BlockSubnetTopicFormat
+	GossipTypeMapping[reflect.TypeOf(&ethpb.SignedBlindedBeaconBlockBellatrix{})] = BlockSubnetTopicFormat
 }

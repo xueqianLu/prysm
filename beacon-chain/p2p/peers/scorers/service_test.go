@@ -5,19 +5,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/libp2p/go-libp2p-core/network"
-	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/prysmaticlabs/prysm/beacon-chain/p2p/peers"
-	"github.com/prysmaticlabs/prysm/beacon-chain/p2p/peers/scorers"
-	"github.com/prysmaticlabs/prysm/cmd/beacon-chain/flags"
-	"github.com/prysmaticlabs/prysm/testing/assert"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/peers"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/peers/scorers"
+	"github.com/prysmaticlabs/prysm/v3/cmd/beacon-chain/flags"
+	"github.com/prysmaticlabs/prysm/v3/testing/assert"
 )
 
 func TestScorers_Service_Init(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	batchSize := flags.Get().BlockBatchLimit
+	batchSize := uint64(flags.Get().BlockBatchLimit)
 
 	t.Run("default config", func(t *testing.T) {
 		peerStatuses := peers.NewStatus(ctx, &peers.StatusConfig{
@@ -82,7 +82,7 @@ func TestScorers_Service_Score(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	batchSize := flags.Get().BlockBatchLimit
+	batchSize := uint64(flags.Get().BlockBatchLimit)
 
 	peerScores := func(s *scorers.Service, pids []peer.ID) map[string]float64 {
 		scores := make(map[string]float64, len(pids))

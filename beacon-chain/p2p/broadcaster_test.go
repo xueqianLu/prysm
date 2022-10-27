@@ -10,20 +10,20 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/p2p/discover"
-	"github.com/libp2p/go-libp2p-core/host"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/prysmaticlabs/go-bitfield"
-	"github.com/prysmaticlabs/prysm/beacon-chain/core/helpers"
-	"github.com/prysmaticlabs/prysm/beacon-chain/p2p/peers"
-	"github.com/prysmaticlabs/prysm/beacon-chain/p2p/peers/scorers"
-	p2ptest "github.com/prysmaticlabs/prysm/beacon-chain/p2p/testing"
-	"github.com/prysmaticlabs/prysm/encoding/bytesutil"
-	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1/wrapper"
-	testpb "github.com/prysmaticlabs/prysm/proto/testing"
-	"github.com/prysmaticlabs/prysm/testing/assert"
-	"github.com/prysmaticlabs/prysm/testing/require"
-	"github.com/prysmaticlabs/prysm/testing/util"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/helpers"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/peers"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/peers/scorers"
+	p2ptest "github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/testing"
+	"github.com/prysmaticlabs/prysm/v3/consensus-types/wrapper"
+	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
+	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	testpb "github.com/prysmaticlabs/prysm/v3/proto/testing"
+	"github.com/prysmaticlabs/prysm/v3/testing/assert"
+	"github.com/prysmaticlabs/prysm/v3/testing/require"
+	"github.com/prysmaticlabs/prysm/v3/testing/util"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -278,13 +278,13 @@ func TestService_BroadcastAttestationWithDiscoveryAttempts(t *testing.T) {
 		}
 	}()
 
-	ps1, err := pubsub.NewFloodSub(context.Background(), hosts[0],
+	ps1, err := pubsub.NewGossipSub(context.Background(), hosts[0],
 		pubsub.WithMessageSigning(false),
 		pubsub.WithStrictSignatureVerification(false),
 	)
 	require.NoError(t, err)
 
-	ps2, err := pubsub.NewFloodSub(context.Background(), hosts[1],
+	ps2, err := pubsub.NewGossipSub(context.Background(), hosts[1],
 		pubsub.WithMessageSigning(false),
 		pubsub.WithStrictSignatureVerification(false),
 	)
@@ -295,7 +295,7 @@ func TestService_BroadcastAttestationWithDiscoveryAttempts(t *testing.T) {
 		pubsub:                ps1,
 		dv5Listener:           listeners[0],
 		joinedTopics:          map[string]*pubsub.Topic{},
-		cfg:                   &Config{},
+		cfg:                   cfg,
 		genesisTime:           time.Now(),
 		genesisValidatorsRoot: bytesutil.PadTo([]byte{'A'}, 32),
 		subnetsLock:           make(map[uint64]*sync.RWMutex),
@@ -311,7 +311,7 @@ func TestService_BroadcastAttestationWithDiscoveryAttempts(t *testing.T) {
 		pubsub:                ps2,
 		dv5Listener:           listeners[1],
 		joinedTopics:          map[string]*pubsub.Topic{},
-		cfg:                   &Config{},
+		cfg:                   cfg,
 		genesisTime:           time.Now(),
 		genesisValidatorsRoot: bytesutil.PadTo([]byte{'A'}, 32),
 		subnetsLock:           make(map[uint64]*sync.RWMutex),
@@ -320,6 +320,8 @@ func TestService_BroadcastAttestationWithDiscoveryAttempts(t *testing.T) {
 			ScorerParams: &scorers.Config{},
 		}),
 	}
+	go p.listenForNewNodes()
+	go p2.listenForNewNodes()
 
 	msg := util.HydrateAttestation(&ethpb.Attestation{AggregationBits: bitfield.NewBitlist(7)})
 	topic := AttestationSubnetTopicFormat
@@ -330,14 +332,25 @@ func TestService_BroadcastAttestationWithDiscoveryAttempts(t *testing.T) {
 
 	// External peer subscribes to the topic.
 	topic += p.Encoding().ProtocolSuffix()
-	// We dont use our internal subscribe method
+	// We don't use our internal subscribe method
 	// due to using floodsub over here.
 	tpHandle, err := p2.JoinTopic(topic)
 	require.NoError(t, err)
 	sub, err := tpHandle.Subscribe()
 	require.NoError(t, err)
 
-	time.Sleep(50 * time.Millisecond) // libp2p fails without this delay...
+	tpHandle, err = p.JoinTopic(topic)
+	require.NoError(t, err)
+	_, err = tpHandle.Subscribe()
+	require.NoError(t, err)
+
+	time.Sleep(500 * time.Millisecond) // libp2p fails without this delay...
+
+	nodePeers := p.pubsub.ListPeers(topic)
+	nodePeers2 := p2.pubsub.ListPeers(topic)
+
+	assert.Equal(t, 1, len(nodePeers))
+	assert.Equal(t, 1, len(nodePeers2))
 
 	// Async listen for the pubsub, must be before the broadcast.
 	var wg sync.WaitGroup

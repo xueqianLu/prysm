@@ -1,9 +1,10 @@
 package util
 
 import (
-	"github.com/prysmaticlabs/prysm/config/params"
-	"github.com/prysmaticlabs/prysm/encoding/bytesutil"
-	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
+	fieldparams "github.com/prysmaticlabs/prysm/v3/config/fieldparams"
+	"github.com/prysmaticlabs/prysm/v3/config/params"
+	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
+	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
 )
 
 // HydrateSyncCommittee hydrates the provided sync committee message.
@@ -12,7 +13,7 @@ func HydrateSyncCommittee(s *ethpb.SyncCommitteeMessage) *ethpb.SyncCommitteeMes
 		s.Signature = make([]byte, 96)
 	}
 	if s.BlockRoot == nil {
-		s.BlockRoot = make([]byte, 32)
+		s.BlockRoot = make([]byte, fieldparams.RootLength)
 	}
 	return s
 }

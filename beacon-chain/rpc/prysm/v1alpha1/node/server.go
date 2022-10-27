@@ -11,15 +11,16 @@ import (
 
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/golang/protobuf/ptypes/timestamp"
-	"github.com/libp2p/go-libp2p-core/network"
-	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/prysmaticlabs/prysm/beacon-chain/blockchain"
-	"github.com/prysmaticlabs/prysm/beacon-chain/db"
-	"github.com/prysmaticlabs/prysm/beacon-chain/p2p"
-	"github.com/prysmaticlabs/prysm/beacon-chain/sync"
-	"github.com/prysmaticlabs/prysm/io/logs"
-	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/runtime/version"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/blockchain"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/db"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/execution"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/sync"
+	"github.com/prysmaticlabs/prysm/v3/io/logs"
+	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v3/runtime/version"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -39,6 +40,7 @@ type Server struct {
 	PeerManager          p2p.PeerManager
 	GenesisTimeFetcher   blockchain.TimeFetcher
 	GenesisFetcher       blockchain.GenesisFetcher
+	POWChainInfoFetcher  execution.ChainInfoFetcher
 	BeaconMonitoringHost string
 	BeaconMonitoringPort int
 }
@@ -66,7 +68,7 @@ func (ns *Server) GetGenesis(ctx context.Context, _ *empty.Empty) (*ethpb.Genesi
 		gt = timestamppb.New(genesisTime)
 	}
 
-	genValRoot := ns.GenesisFetcher.GenesisValidatorRoot()
+	genValRoot := ns.GenesisFetcher.GenesisValidatorsRoot()
 	return &ethpb.Genesis{
 		GenesisTime:            gt,
 		DepositContractAddress: contractAddr,
@@ -216,6 +218,20 @@ func (ns *Server) ListPeers(ctx context.Context, _ *empty.Empty) (*ethpb.Peers, 
 
 	return &ethpb.Peers{
 		Peers: res,
+	}, nil
+}
+
+// GetETH1ConnectionStatus gets data about the ETH1 endpoints.
+func (ns *Server) GetETH1ConnectionStatus(_ context.Context, _ *empty.Empty) (*ethpb.ETH1ConnectionStatus, error) {
+	var currErr string
+	err := ns.POWChainInfoFetcher.ExecutionClientConnectionErr()
+	if err != nil {
+		currErr = err.Error()
+	}
+	return &ethpb.ETH1ConnectionStatus{
+		CurrentAddress:         ns.POWChainInfoFetcher.ExecutionClientEndpoint(),
+		CurrentConnectionError: currErr,
+		Addresses:              []string{ns.POWChainInfoFetcher.ExecutionClientEndpoint()},
 	}, nil
 }
 

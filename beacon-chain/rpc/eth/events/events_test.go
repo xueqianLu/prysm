@@ -7,20 +7,20 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/proto/gateway"
 	"github.com/prysmaticlabs/go-bitfield"
-	"github.com/prysmaticlabs/prysm/async/event"
-	mockChain "github.com/prysmaticlabs/prysm/beacon-chain/blockchain/testing"
-	"github.com/prysmaticlabs/prysm/beacon-chain/core/feed"
-	blockfeed "github.com/prysmaticlabs/prysm/beacon-chain/core/feed/block"
-	"github.com/prysmaticlabs/prysm/beacon-chain/core/feed/operation"
-	statefeed "github.com/prysmaticlabs/prysm/beacon-chain/core/feed/state"
-	ethpb "github.com/prysmaticlabs/prysm/proto/eth/v1"
-	"github.com/prysmaticlabs/prysm/proto/migration"
-	eth "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1/wrapper"
-	"github.com/prysmaticlabs/prysm/testing/assert"
-	"github.com/prysmaticlabs/prysm/testing/mock"
-	"github.com/prysmaticlabs/prysm/testing/require"
-	"github.com/prysmaticlabs/prysm/testing/util"
+	"github.com/prysmaticlabs/prysm/v3/async/event"
+	mockChain "github.com/prysmaticlabs/prysm/v3/beacon-chain/blockchain/testing"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/feed"
+	blockfeed "github.com/prysmaticlabs/prysm/v3/beacon-chain/core/feed/block"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/feed/operation"
+	statefeed "github.com/prysmaticlabs/prysm/v3/beacon-chain/core/feed/state"
+	"github.com/prysmaticlabs/prysm/v3/consensus-types/blocks"
+	ethpb "github.com/prysmaticlabs/prysm/v3/proto/eth/v1"
+	"github.com/prysmaticlabs/prysm/v3/proto/migration"
+	eth "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v3/testing/assert"
+	"github.com/prysmaticlabs/prysm/v3/testing/mock"
+	"github.com/prysmaticlabs/prysm/v3/testing/require"
+	"github.com/prysmaticlabs/prysm/v3/testing/util"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
@@ -57,15 +57,17 @@ func TestStreamEvents_BlockEvents(t *testing.T) {
 		wantedBlockRoot, err := wantedBlock.HashTreeRoot()
 		require.NoError(t, err)
 		genericResponse, err := anypb.New(&ethpb.EventBlock{
-			Slot:  8,
-			Block: wantedBlockRoot[:],
+			Slot:                8,
+			Block:               wantedBlockRoot[:],
+			ExecutionOptimistic: true,
 		})
 		require.NoError(t, err)
 		wantedMessage := &gateway.EventSource{
 			Event: BlockTopic,
 			Data:  genericResponse,
 		}
-
+		wsb, err := blocks.NewSignedBeaconBlock(wantedBlock)
+		require.NoError(t, err)
 		assertFeedSendAndReceive(ctx, &assertFeedArgs{
 			t:             t,
 			srv:           srv,
@@ -75,7 +77,8 @@ func TestStreamEvents_BlockEvents(t *testing.T) {
 			itemToSend: &feed.Event{
 				Type: blockfeed.ReceivedBlock,
 				Data: &blockfeed.ReceivedBlockData{
-					SignedBlock: wrapper.WrappedPhase0SignedBeaconBlock(wantedBlock),
+					SignedBlock:  wsb,
+					IsOptimistic: true,
 				},
 			},
 			feed: srv.BlockNotifier.BlockFeed(),
@@ -244,6 +247,7 @@ func TestStreamEvents_StateEvents(t *testing.T) {
 			EpochTransition:           true,
 			PreviousDutyDependentRoot: make([]byte, 32),
 			CurrentDutyDependentRoot:  make([]byte, 32),
+			ExecutionOptimistic:       true,
 		}
 		genericResponse, err := anypb.New(wantedHead)
 		require.NoError(t, err)
@@ -271,9 +275,10 @@ func TestStreamEvents_StateEvents(t *testing.T) {
 		defer ctrl.Finish()
 
 		wantedCheckpoint := &ethpb.EventFinalizedCheckpoint{
-			Block: make([]byte, 32),
-			State: make([]byte, 32),
-			Epoch: 8,
+			Block:               make([]byte, 32),
+			State:               make([]byte, 32),
+			Epoch:               8,
+			ExecutionOptimistic: true,
 		}
 		genericResponse, err := anypb.New(wantedCheckpoint)
 		require.NoError(t, err)
@@ -301,13 +306,14 @@ func TestStreamEvents_StateEvents(t *testing.T) {
 		defer ctrl.Finish()
 
 		wantedReorg := &ethpb.EventChainReorg{
-			Slot:         8,
-			Depth:        1,
-			OldHeadBlock: make([]byte, 32),
-			NewHeadBlock: make([]byte, 32),
-			OldHeadState: make([]byte, 32),
-			NewHeadState: make([]byte, 32),
-			Epoch:        0,
+			Slot:                8,
+			Depth:               1,
+			OldHeadBlock:        make([]byte, 32),
+			NewHeadBlock:        make([]byte, 32),
+			OldHeadState:        make([]byte, 32),
+			NewHeadState:        make([]byte, 32),
+			Epoch:               0,
+			ExecutionOptimistic: true,
 		}
 		genericResponse, err := anypb.New(wantedReorg)
 		require.NoError(t, err)
@@ -328,6 +334,65 @@ func TestStreamEvents_StateEvents(t *testing.T) {
 			},
 			feed: srv.StateNotifier.StateFeed(),
 		})
+	})
+}
+
+func TestStreamEvents_CommaSeparatedTopics(t *testing.T) {
+	ctx := context.Background()
+	srv, ctrl, mockStream := setupServer(ctx, t)
+	defer ctrl.Finish()
+
+	wantedHead := &ethpb.EventHead{
+		Slot:                      8,
+		Block:                     make([]byte, 32),
+		State:                     make([]byte, 32),
+		EpochTransition:           true,
+		PreviousDutyDependentRoot: make([]byte, 32),
+		CurrentDutyDependentRoot:  make([]byte, 32),
+	}
+	headGenericResponse, err := anypb.New(wantedHead)
+	require.NoError(t, err)
+	wantedHeadMessage := &gateway.EventSource{
+		Event: HeadTopic,
+		Data:  headGenericResponse,
+	}
+
+	assertFeedSendAndReceive(ctx, &assertFeedArgs{
+		t:             t,
+		srv:           srv,
+		topics:        []string{HeadTopic + "," + FinalizedCheckpointTopic},
+		stream:        mockStream,
+		shouldReceive: wantedHeadMessage,
+		itemToSend: &feed.Event{
+			Type: statefeed.NewHead,
+			Data: wantedHead,
+		},
+		feed: srv.StateNotifier.StateFeed(),
+	})
+
+	wantedCheckpoint := &ethpb.EventFinalizedCheckpoint{
+		Block: make([]byte, 32),
+		State: make([]byte, 32),
+		Epoch: 8,
+	}
+	checkpointGenericResponse, err := anypb.New(wantedCheckpoint)
+	require.NoError(t, err)
+	wantedCheckpointMessage := &gateway.EventSource{
+		Event: FinalizedCheckpointTopic,
+		Data:  checkpointGenericResponse,
+	}
+
+	assertFeedSendAndReceive(ctx, &assertFeedArgs{
+		t:             t,
+		srv:           srv,
+		topics:        []string{HeadTopic + "," + FinalizedCheckpointTopic},
+		stream:        mockStream,
+		shouldReceive: wantedCheckpointMessage,
+		itemToSend: &feed.Event{
+			Type: statefeed.FinalizedCheckpoint,
+			Data: wantedCheckpoint,
+		},
+		feed: srv.StateNotifier.StateFeed(),
 	})
 }
 

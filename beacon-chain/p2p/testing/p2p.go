@@ -10,27 +10,27 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/p2p/enr"
-	ssz "github.com/ferranbt/fastssz"
-	bhost "github.com/libp2p/go-libp2p-blankhost"
-	core "github.com/libp2p/go-libp2p-core"
-	"github.com/libp2p/go-libp2p-core/control"
-	"github.com/libp2p/go-libp2p-core/host"
-	"github.com/libp2p/go-libp2p-core/network"
-	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-core/protocol"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
-	swarmt "github.com/libp2p/go-libp2p-swarm/testing"
+	core "github.com/libp2p/go-libp2p/core"
+	"github.com/libp2p/go-libp2p/core/control"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
+	bhost "github.com/libp2p/go-libp2p/p2p/host/blank"
+	swarmt "github.com/libp2p/go-libp2p/p2p/net/swarm/testing"
 	"github.com/multiformats/go-multiaddr"
-	"github.com/prysmaticlabs/prysm/beacon-chain/p2p/encoder"
-	"github.com/prysmaticlabs/prysm/beacon-chain/p2p/peers"
-	"github.com/prysmaticlabs/prysm/beacon-chain/p2p/peers/scorers"
-	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1/metadata"
+	ssz "github.com/prysmaticlabs/fastssz"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/encoder"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/peers"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/peers/scorers"
+	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1/metadata"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 )
 
-// We have to declare this again here to prevent a circular dependancy
+// We have to declare this again here to prevent a circular dependency
 // with the main p2p package.
 const metatadataV1Topic = "/eth2/beacon_chain/req/metadata/1"
 const metatadataV2Topic = "/eth2/beacon_chain/req/metadata/2"
@@ -51,7 +51,7 @@ type TestP2P struct {
 // NewTestP2P initializes a new p2p test service.
 func NewTestP2P(t *testing.T) *TestP2P {
 	ctx := context.Background()
-	h := bhost.NewBlankHost(swarmt.GenSwarm(t, ctx))
+	h := bhost.NewBlankHost(swarmt.GenSwarm(t))
 	ps, err := pubsub.NewFloodSub(ctx, h,
 		pubsub.WithMessageSigning(false),
 		pubsub.WithStrictSignatureVerification(false),
@@ -91,7 +91,7 @@ func connect(a, b host.Host) error {
 
 // ReceiveRPC simulates an incoming RPC.
 func (p *TestP2P) ReceiveRPC(topic string, msg proto.Message) {
-	h := bhost.NewBlankHost(swarmt.GenSwarm(p.t, context.Background()))
+	h := bhost.NewBlankHost(swarmt.GenSwarm(p.t))
 	if err := connect(h, p.BHost); err != nil {
 		p.t.Fatalf("Failed to connect two peers for RPC: %v", err)
 	}
@@ -107,7 +107,7 @@ func (p *TestP2P) ReceiveRPC(topic string, msg proto.Message) {
 
 	castedMsg, ok := msg.(ssz.Marshaler)
 	if !ok {
-		p.t.Fatalf("%T doesnt support ssz marshaler", msg)
+		p.t.Fatalf("%T doesn't support ssz marshaler", msg)
 	}
 	n, err := p.Encoding().EncodeWithMaxLength(s, castedMsg)
 	if err != nil {
@@ -121,7 +121,7 @@ func (p *TestP2P) ReceiveRPC(topic string, msg proto.Message) {
 
 // ReceivePubSub simulates an incoming message over pubsub on a given topic.
 func (p *TestP2P) ReceivePubSub(topic string, msg proto.Message) {
-	h := bhost.NewBlankHost(swarmt.GenSwarm(p.t, context.Background()))
+	h := bhost.NewBlankHost(swarmt.GenSwarm(p.t))
 	ps, err := pubsub.NewFloodSub(context.Background(), h,
 		pubsub.WithMessageSigning(false),
 		pubsub.WithStrictSignatureVerification(false),
@@ -139,7 +139,7 @@ func (p *TestP2P) ReceivePubSub(topic string, msg proto.Message) {
 
 	castedMsg, ok := msg.(ssz.Marshaler)
 	if !ok {
-		p.t.Fatalf("%T doesnt support ssz marshaler", msg)
+		p.t.Fatalf("%T doesn't support ssz marshaler", msg)
 	}
 	buf := new(bytes.Buffer)
 	if _, err := p.Encoding().EncodeGossip(buf, castedMsg); err != nil {
@@ -305,7 +305,7 @@ func (p *TestP2P) AddDisconnectionHandler(f func(ctx context.Context, id peer.ID
 func (p *TestP2P) Send(ctx context.Context, msg interface{}, topic string, pid peer.ID) (network.Stream, error) {
 	t := topic
 	if t == "" {
-		return nil, fmt.Errorf("protocol doesnt exist for proto message: %v", msg)
+		return nil, fmt.Errorf("protocol doesn't exist for proto message: %v", msg)
 	}
 	stream, err := p.BHost.NewStream(ctx, pid, core.ProtocolID(t+p.Encoding().ProtocolSuffix()))
 	if err != nil {
@@ -315,7 +315,7 @@ func (p *TestP2P) Send(ctx context.Context, msg interface{}, topic string, pid p
 	if topic != metatadataV1Topic && topic != metatadataV2Topic {
 		castedMsg, ok := msg.(ssz.Marshaler)
 		if !ok {
-			p.t.Fatalf("%T doesnt support ssz marshaler", msg)
+			p.t.Fatalf("%T doesn't support ssz marshaler", msg)
 		}
 		if _, err := p.Encoding().EncodeWithMaxLength(stream, castedMsg); err != nil {
 			_err := stream.Reset()
@@ -349,7 +349,7 @@ func (p *TestP2P) Peers() *peers.Status {
 }
 
 // FindPeersWithSubnet mocks the p2p func.
-func (_ *TestP2P) FindPeersWithSubnet(_ context.Context, _ string, _, _ uint64) (bool, error) {
+func (_ *TestP2P) FindPeersWithSubnet(_ context.Context, _ string, _ uint64, _ int) (bool, error) {
 	return false, nil
 }
 

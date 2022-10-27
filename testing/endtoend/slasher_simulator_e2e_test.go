@@ -6,16 +6,17 @@ import (
 	"strconv"
 	"testing"
 
-	types "github.com/prysmaticlabs/eth2-types"
-	mock "github.com/prysmaticlabs/prysm/beacon-chain/blockchain/testing"
-	dbtest "github.com/prysmaticlabs/prysm/beacon-chain/db/testing"
-	"github.com/prysmaticlabs/prysm/beacon-chain/operations/slashings"
-	"github.com/prysmaticlabs/prysm/beacon-chain/state/stategen"
-	"github.com/prysmaticlabs/prysm/crypto/bls"
-	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/testing/require"
-	slashersimulator "github.com/prysmaticlabs/prysm/testing/slasher/simulator"
-	"github.com/prysmaticlabs/prysm/testing/util"
+	mock "github.com/prysmaticlabs/prysm/v3/beacon-chain/blockchain/testing"
+	dbtest "github.com/prysmaticlabs/prysm/v3/beacon-chain/db/testing"
+	mockslashings "github.com/prysmaticlabs/prysm/v3/beacon-chain/operations/slashings/mock"
+	mockstategen "github.com/prysmaticlabs/prysm/v3/beacon-chain/state/stategen/mock"
+	"github.com/prysmaticlabs/prysm/v3/config/params"
+	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v3/crypto/bls"
+	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v3/testing/require"
+	slashersimulator "github.com/prysmaticlabs/prysm/v3/testing/slasher/simulator"
+	"github.com/prysmaticlabs/prysm/v3/testing/util"
 	logTest "github.com/sirupsen/logrus/hooks/test"
 )
 
@@ -46,6 +47,9 @@ func (mockSyncChecker) IsSynced(_ context.Context) (bool, error) {
 }
 
 func TestEndToEnd_SlasherSimulator(t *testing.T) {
+	params.SetupTestConfigCleanup(t)
+	params.OverrideBeaconConfig(params.E2ETestConfig().Copy())
+
 	hook := logTest.NewGlobal()
 	ctx := context.Background()
 
@@ -80,7 +84,7 @@ func TestEndToEnd_SlasherSimulator(t *testing.T) {
 	require.NoError(t, err)
 
 	mockChain := &mock.ChainService{State: beaconState}
-	gen := stategen.NewMockService()
+	gen := mockstategen.NewMockService()
 	gen.AddStateForRoot(beaconState, [32]byte{})
 
 	sim, err := slashersimulator.New(ctx, &slashersimulator.ServiceConfig{
@@ -91,7 +95,7 @@ func TestEndToEnd_SlasherSimulator(t *testing.T) {
 		AttestationStateFetcher:     mockChain,
 		StateGen:                    gen,
 		PrivateKeysByValidatorIndex: privKeys,
-		SlashingsPool:               &slashings.PoolMock{},
+		SlashingsPool:               &mockslashings.PoolMock{},
 		SyncChecker:                 mockSyncChecker{},
 	})
 	require.NoError(t, err)

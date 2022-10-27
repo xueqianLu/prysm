@@ -3,6 +3,7 @@ package apimiddleware
 import (
 	"net/http"
 	"reflect"
+	"time"
 
 	"github.com/gorilla/mux"
 )
@@ -14,6 +15,7 @@ import (
 type ApiProxyMiddleware struct {
 	GatewayAddress  string
 	EndpointCreator EndpointFactory
+	Timeout         time.Duration
 	router          *mux.Router
 }
 
@@ -89,12 +91,13 @@ func (m *ApiProxyMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request)
 
 // WithMiddleware wraps the given endpoint handler with the middleware logic.
 func (m *ApiProxyMiddleware) WithMiddleware(path string) http.HandlerFunc {
-	endpoint, err := m.EndpointCreator.Create(path)
-	if err != nil {
-		log.WithError(err).Errorf("Could not create endpoint for path: %s", path)
-		return nil
-	}
 	return func(w http.ResponseWriter, req *http.Request) {
+		endpoint, err := m.EndpointCreator.Create(path)
+		if err != nil {
+			log.WithError(err).Errorf("Could not create endpoint for path: %s", path)
+			return
+		}
+
 		for _, handler := range endpoint.CustomHandlers {
 			if handler(m, *endpoint, w, req) {
 				return
@@ -108,7 +111,7 @@ func (m *ApiProxyMiddleware) WithMiddleware(path string) http.HandlerFunc {
 			}
 		}
 
-		if req.Method == "DELETE" {
+		if req.Method == "DELETE" && req.Body != http.NoBody {
 			if errJson := handleDeleteRequestForEndpoint(endpoint, req); errJson != nil {
 				WriteError(w, errJson, nil)
 				return
@@ -119,7 +122,7 @@ func (m *ApiProxyMiddleware) WithMiddleware(path string) http.HandlerFunc {
 			WriteError(w, errJson, nil)
 			return
 		}
-		grpcResp, errJson := ProxyRequest(req)
+		grpcResp, errJson := m.ProxyRequest(req)
 		if errJson != nil {
 			WriteError(w, errJson, nil)
 			return

@@ -5,12 +5,13 @@ import (
 	"context"
 	"fmt"
 
-	types "github.com/prysmaticlabs/eth2-types"
-	"github.com/prysmaticlabs/prysm/beacon-chain/core/helpers"
-	"github.com/prysmaticlabs/prysm/beacon-chain/state"
-	"github.com/prysmaticlabs/prysm/config/params"
-	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1/block"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/helpers"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/state"
+	"github.com/prysmaticlabs/prysm/v3/config/params"
+	"github.com/prysmaticlabs/prysm/v3/consensus-types/blocks"
+	"github.com/prysmaticlabs/prysm/v3/consensus-types/interfaces"
+	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
+	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
 )
 
 // ProcessBlockHeader validates a block by its header.
@@ -41,22 +42,24 @@ import (
 func ProcessBlockHeader(
 	ctx context.Context,
 	beaconState state.BeaconState,
-	block block.SignedBeaconBlock,
+	block interfaces.SignedBeaconBlock,
 ) (state.BeaconState, error) {
-	if err := helpers.BeaconBlockIsNil(block); err != nil {
+	if err := blocks.BeaconBlockIsNil(block); err != nil {
 		return nil, err
 	}
 	bodyRoot, err := block.Block().Body().HashTreeRoot()
 	if err != nil {
 		return nil, err
 	}
-	beaconState, err = ProcessBlockHeaderNoVerify(ctx, beaconState, block.Block().Slot(), block.Block().ProposerIndex(), block.Block().ParentRoot(), bodyRoot[:])
+	parentRoot := block.Block().ParentRoot()
+	beaconState, err = ProcessBlockHeaderNoVerify(ctx, beaconState, block.Block().Slot(), block.Block().ProposerIndex(), parentRoot[:], bodyRoot[:])
 	if err != nil {
 		return nil, err
 	}
 
 	// Verify proposer signature.
-	if err := VerifyBlockSignature(beaconState, block.Block().ProposerIndex(), block.Signature(), block.Block().HashTreeRoot); err != nil {
+	sig := block.Signature()
+	if err := VerifyBlockSignature(beaconState, block.Block().ProposerIndex(), sig[:], block.Block().HashTreeRoot); err != nil {
 		return nil, err
 	}
 

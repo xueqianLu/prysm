@@ -1,6 +1,6 @@
 base:
   language: go
-  docker_image: golang:latest
+  version: 1.18
   build_tags:
-    - libfuzzer
-    - blst_disabled
+    - fuzz
+    - develop

@@ -1,6 +1,6 @@
 package relay
 
-import eth2types "github.com/prysmaticlabs/eth2-types"
+import eth2types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
 
 type ValidatorStatus int
 

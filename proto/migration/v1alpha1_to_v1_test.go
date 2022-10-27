@@ -3,15 +3,16 @@ package migration
 import (
 	"testing"
 
-	types "github.com/prysmaticlabs/eth2-types"
 	"github.com/prysmaticlabs/go-bitfield"
-	"github.com/prysmaticlabs/prysm/encoding/bytesutil"
-	ethpbv1 "github.com/prysmaticlabs/prysm/proto/eth/v1"
-	ethpbalpha "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1/wrapper"
-	"github.com/prysmaticlabs/prysm/testing/assert"
-	"github.com/prysmaticlabs/prysm/testing/require"
-	"github.com/prysmaticlabs/prysm/testing/util"
+	fieldparams "github.com/prysmaticlabs/prysm/v3/config/fieldparams"
+	"github.com/prysmaticlabs/prysm/v3/consensus-types/blocks"
+	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
+	ethpbv1 "github.com/prysmaticlabs/prysm/v3/proto/eth/v1"
+	ethpbalpha "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v3/testing/assert"
+	"github.com/prysmaticlabs/prysm/v3/testing/require"
+	"github.com/prysmaticlabs/prysm/v3/testing/util"
 )
 
 var (
@@ -21,17 +22,29 @@ var (
 	committeeIndex   = types.CommitteeIndex(1)
 	depositCount     = uint64(2)
 	attestingIndices = []uint64{1, 2}
-	parentRoot       = bytesutil.PadTo([]byte("parentroot"), 32)
-	stateRoot        = bytesutil.PadTo([]byte("stateroot"), 32)
+	blockNumber      = uint64(10)
+	gasLimit         = uint64(10)
+	gasUsed          = uint64(10)
+	timestamp        = uint64(10)
+	parentRoot       = bytesutil.PadTo([]byte("parentroot"), fieldparams.RootLength)
+	stateRoot        = bytesutil.PadTo([]byte("stateroot"), fieldparams.RootLength)
 	signature        = bytesutil.PadTo([]byte("signature"), 96)
 	randaoReveal     = bytesutil.PadTo([]byte("randaoreveal"), 96)
-	depositRoot      = bytesutil.PadTo([]byte("depositroot"), 32)
+	depositRoot      = bytesutil.PadTo([]byte("depositroot"), fieldparams.RootLength)
 	blockHash        = bytesutil.PadTo([]byte("blockhash"), 32)
-	beaconBlockRoot  = bytesutil.PadTo([]byte("beaconblockroot"), 32)
-	sourceRoot       = bytesutil.PadTo([]byte("sourceroot"), 32)
-	targetRoot       = bytesutil.PadTo([]byte("targetroot"), 32)
-	bodyRoot         = bytesutil.PadTo([]byte("bodyroot"), 32)
+	beaconBlockRoot  = bytesutil.PadTo([]byte("beaconblockroot"), fieldparams.RootLength)
+	sourceRoot       = bytesutil.PadTo([]byte("sourceroot"), fieldparams.RootLength)
+	targetRoot       = bytesutil.PadTo([]byte("targetroot"), fieldparams.RootLength)
+	bodyRoot         = bytesutil.PadTo([]byte("bodyroot"), fieldparams.RootLength)
 	selectionProof   = bytesutil.PadTo([]byte("selectionproof"), 96)
+	parentHash       = bytesutil.PadTo([]byte("parenthash"), 32)
+	feeRecipient     = bytesutil.PadTo([]byte("feerecipient"), 20)
+	receiptsRoot     = bytesutil.PadTo([]byte("receiptsroot"), 32)
+	logsBloom        = bytesutil.PadTo([]byte("logsbloom"), 256)
+	prevRandao       = bytesutil.PadTo([]byte("prevrandao"), 32)
+	extraData        = bytesutil.PadTo([]byte("extradata"), 32)
+	baseFeePerGas    = bytesutil.PadTo([]byte("basefeepergas"), 32)
+	transactionsRoot = bytesutil.PadTo([]byte("transactions"), 32)
 	aggregationBits  = bitfield.Bitlist{0x01}
 )
 
@@ -43,7 +56,9 @@ func Test_BlockIfaceToV1BlockHeader(t *testing.T) {
 	alphaBlock.Block.StateRoot = stateRoot
 	alphaBlock.Signature = signature
 
-	v1Header, err := BlockIfaceToV1BlockHeader(wrapper.WrappedPhase0SignedBeaconBlock(alphaBlock))
+	wsb, err := blocks.NewSignedBeaconBlock(alphaBlock)
+	require.NoError(t, err)
+	v1Header, err := BlockIfaceToV1BlockHeader(wsb)
 	require.NoError(t, err)
 	bodyRoot, err := alphaBlock.Block.Body.HashTreeRoot()
 	require.NoError(t, err)
@@ -350,7 +365,9 @@ func Test_BlockInterfaceToV1Block(t *testing.T) {
 	}
 	v1Alpha1Block.Signature = signature
 
-	v1Block, err := SignedBeaconBlock(wrapper.WrappedPhase0SignedBeaconBlock(v1Alpha1Block))
+	wsb, err := blocks.NewSignedBeaconBlock(v1Alpha1Block)
+	require.NoError(t, err)
+	v1Block, err := SignedBeaconBlock(wsb)
 	require.NoError(t, err)
 	v1Root, err := v1Block.HashTreeRoot()
 	require.NoError(t, err)
@@ -435,10 +452,10 @@ func Test_V1AttestationToV1Alpha1(t *testing.T) {
 	require.NoError(t, err)
 	assert.DeepEqual(t, v1Root, v1Alpha1Root)
 }
-func TestBeaconStateToV1(t *testing.T) {
+func TestBeaconStateToProto(t *testing.T) {
 	source, err := util.NewBeaconState(util.FillRootsNaturalOpt, func(state *ethpbalpha.BeaconState) error {
 		state.GenesisTime = 1
-		state.GenesisValidatorsRoot = bytesutil.PadTo([]byte("genesisvalidatorroot"), 32)
+		state.GenesisValidatorsRoot = bytesutil.PadTo([]byte("genesisvalidatorsroot"), 32)
 		state.Slot = 2
 		state.Fork = &ethpbalpha.Fork{
 			PreviousVersion: bytesutil.PadTo([]byte("123"), 4),
@@ -532,11 +549,11 @@ func TestBeaconStateToV1(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	result, err := BeaconStateToV1(source)
+	result, err := BeaconStateToProto(source)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, uint64(1), result.GenesisTime)
-	assert.DeepEqual(t, bytesutil.PadTo([]byte("genesisvalidatorroot"), 32), result.GenesisValidatorsRoot)
+	assert.DeepEqual(t, bytesutil.PadTo([]byte("genesisvalidatorsroot"), 32), result.GenesisValidatorsRoot)
 	assert.Equal(t, types.Slot(2), result.Slot)
 	resultFork := result.Fork
 	require.NotNil(t, resultFork)
@@ -550,9 +567,12 @@ func TestBeaconStateToV1(t *testing.T) {
 	assert.DeepEqual(t, bytesutil.PadTo([]byte("lbhparentroot"), 32), resultLatestBlockHeader.ParentRoot)
 	assert.DeepEqual(t, bytesutil.PadTo([]byte("lbhstateroot"), 32), resultLatestBlockHeader.StateRoot)
 	assert.DeepEqual(t, bytesutil.PadTo([]byte("lbhbodyroot"), 32), resultLatestBlockHeader.BodyRoot)
-	assert.DeepEqual(t, [][]byte{bytesutil.PadTo([]byte("blockroots"), 32)}, result.BlockRoots)
-	assert.DeepEqual(t, [][]byte{bytesutil.PadTo([]byte("stateroots"), 32)}, result.StateRoots)
-	assert.DeepEqual(t, [][]byte{bytesutil.PadTo([]byte("historicalroots"), 32)}, result.HistoricalRoots)
+	assert.Equal(t, 8192, len(result.BlockRoots))
+	assert.DeepEqual(t, bytesutil.PadTo([]byte("blockroots"), 32), result.BlockRoots[0])
+	assert.Equal(t, 8192, len(result.StateRoots))
+	assert.DeepEqual(t, bytesutil.PadTo([]byte("stateroots"), 32), result.StateRoots[0])
+	assert.Equal(t, 1, len(result.HistoricalRoots))
+	assert.DeepEqual(t, bytesutil.PadTo([]byte("historicalroots"), 32), result.HistoricalRoots[0])
 	resultEth1Data := result.Eth1Data
 	require.NotNil(t, resultEth1Data)
 	assert.DeepEqual(t, bytesutil.PadTo([]byte("e1ddepositroot"), 32), resultEth1Data.DepositRoot)
@@ -577,7 +597,8 @@ func TestBeaconStateToV1(t *testing.T) {
 	assert.Equal(t, types.Epoch(12), resultValidator.ExitEpoch)
 	assert.Equal(t, types.Epoch(13), resultValidator.WithdrawableEpoch)
 	assert.DeepEqual(t, []uint64{14}, result.Balances)
-	assert.DeepEqual(t, [][]byte{bytesutil.PadTo([]byte("randaomixes"), 32)}, result.RandaoMixes)
+	assert.Equal(t, 65536, len(result.RandaoMixes))
+	assert.DeepEqual(t, bytesutil.PadTo([]byte("randaomixes"), 32), result.RandaoMixes[0])
 	assert.DeepEqual(t, []uint64{15}, result.Slashings)
 	require.Equal(t, 1, len(result.PreviousEpochAttestations))
 	resultPrevEpochAtt := result.PreviousEpochAttestations[0]

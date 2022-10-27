@@ -13,8 +13,8 @@ import (
 	"github.com/gorilla/mux"
 	gwruntime "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/pkg/errors"
-	"github.com/prysmaticlabs/prysm/api/gateway/apimiddleware"
-	"github.com/prysmaticlabs/prysm/runtime"
+	"github.com/prysmaticlabs/prysm/v3/api/gateway/apimiddleware"
+	"github.com/prysmaticlabs/prysm/v3/runtime"
 	"github.com/rs/cors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
@@ -52,6 +52,7 @@ type config struct {
 	muxHandler                   MuxHandler
 	pbHandlers                   []*PbMux
 	router                       *mux.Router
+	timeout                      time.Duration
 }
 
 // Gateway is the gRPC gateway to serve HTTP JSON traffic as a proxy and forward it to the gRPC server.
@@ -120,8 +121,9 @@ func (g *Gateway) Start() {
 	}
 
 	g.server = &http.Server{
-		Addr:    g.cfg.gatewayAddr,
-		Handler: corsMux,
+		Addr:              g.cfg.gatewayAddr,
+		Handler:           corsMux,
+		ReadHeaderTimeout: time.Second,
 	}
 
 	go func() {
@@ -248,6 +250,7 @@ func (g *Gateway) registerApiMiddleware() {
 	g.proxy = &apimiddleware.ApiProxyMiddleware{
 		GatewayAddress:  g.cfg.gatewayAddr,
 		EndpointCreator: g.cfg.apiMiddlewareEndpointFactory,
+		Timeout:         g.cfg.timeout,
 	}
 	log.Info("Starting API middleware")
 	g.proxy.Run(g.cfg.router)

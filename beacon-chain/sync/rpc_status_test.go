@@ -7,29 +7,30 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/p2p/enr"
-	"github.com/kevinms/leakybucket-go"
-	"github.com/libp2p/go-libp2p-core/network"
-	"github.com/libp2p/go-libp2p-core/protocol"
-	types "github.com/prysmaticlabs/eth2-types"
-	mock "github.com/prysmaticlabs/prysm/beacon-chain/blockchain/testing"
-	"github.com/prysmaticlabs/prysm/beacon-chain/core/transition"
-	"github.com/prysmaticlabs/prysm/beacon-chain/db/kv"
-	testingDB "github.com/prysmaticlabs/prysm/beacon-chain/db/testing"
-	"github.com/prysmaticlabs/prysm/beacon-chain/p2p"
-	"github.com/prysmaticlabs/prysm/beacon-chain/p2p/peers"
-	p2ptest "github.com/prysmaticlabs/prysm/beacon-chain/p2p/testing"
-	p2ptypes "github.com/prysmaticlabs/prysm/beacon-chain/p2p/types"
-	v1 "github.com/prysmaticlabs/prysm/beacon-chain/state/v1"
-	mockSync "github.com/prysmaticlabs/prysm/beacon-chain/sync/initial-sync/testing"
-	"github.com/prysmaticlabs/prysm/config/params"
-	"github.com/prysmaticlabs/prysm/encoding/bytesutil"
-	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1/block"
-	"github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1/wrapper"
-	"github.com/prysmaticlabs/prysm/testing/assert"
-	"github.com/prysmaticlabs/prysm/testing/require"
-	"github.com/prysmaticlabs/prysm/testing/util"
-	prysmTime "github.com/prysmaticlabs/prysm/time"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/protocol"
+	mock "github.com/prysmaticlabs/prysm/v3/beacon-chain/blockchain/testing"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/transition"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/db/kv"
+	testingDB "github.com/prysmaticlabs/prysm/v3/beacon-chain/db/testing"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/peers"
+	p2ptest "github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/testing"
+	p2ptypes "github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/types"
+	state_native "github.com/prysmaticlabs/prysm/v3/beacon-chain/state/state-native"
+	mockSync "github.com/prysmaticlabs/prysm/v3/beacon-chain/sync/initial-sync/testing"
+	"github.com/prysmaticlabs/prysm/v3/config/params"
+	consensusblocks "github.com/prysmaticlabs/prysm/v3/consensus-types/blocks"
+	"github.com/prysmaticlabs/prysm/v3/consensus-types/interfaces"
+	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v3/consensus-types/wrapper"
+	leakybucket "github.com/prysmaticlabs/prysm/v3/container/leaky-bucket"
+	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
+	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v3/testing/assert"
+	"github.com/prysmaticlabs/prysm/v3/testing/require"
+	"github.com/prysmaticlabs/prysm/v3/testing/util"
+	prysmTime "github.com/prysmaticlabs/prysm/v3/time"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -61,7 +62,7 @@ func TestStatusRPCHandler_Disconnects_OnForkVersionMismatch(t *testing.T) {
 	}
 	pcl := protocol.ID(p2p.RPCStatusTopicV1)
 	topic := string(pcl)
-	r.rateLimiter.limiterMap[topic] = leakybucket.NewCollector(1, 1, false)
+	r.rateLimiter.limiterMap[topic] = leakybucket.NewCollector(1, 1, time.Second, false)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -76,7 +77,7 @@ func TestStatusRPCHandler_Disconnects_OnForkVersionMismatch(t *testing.T) {
 
 	pcl2 := protocol.ID("/eth2/beacon_chain/req/goodbye/1/ssz_snappy")
 	topic = string(pcl2)
-	r.rateLimiter.limiterMap[topic] = leakybucket.NewCollector(1, 1, false)
+	r.rateLimiter.limiterMap[topic] = leakybucket.NewCollector(1, 1, time.Second, false)
 	var wg2 sync.WaitGroup
 	wg2.Add(1)
 	p2.BHost.SetStreamHandler(pcl2, func(stream network.Stream) {
@@ -129,7 +130,7 @@ func TestStatusRPCHandler_ConnectsOnGenesis(t *testing.T) {
 	}
 	pcl := protocol.ID(p2p.RPCStatusTopicV1)
 	topic := string(pcl)
-	r.rateLimiter.limiterMap[topic] = leakybucket.NewCollector(1, 1, false)
+	r.rateLimiter.limiterMap[topic] = leakybucket.NewCollector(1, 1, time.Second, false)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -177,7 +178,7 @@ func TestStatusRPCHandler_ReturnsHelloMessage(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, genesisState.SetSlot(111))
 	require.NoError(t, genesisState.UpdateBlockRootAtIndex(111%uint64(params.BeaconConfig().SlotsPerHistoricalRoot), headRoot))
-	require.NoError(t, db.SaveBlock(context.Background(), wrapper.WrappedPhase0SignedBeaconBlock(finalized)))
+	util.SaveBlock(t, context.Background(), db, finalized)
 	require.NoError(t, db.SaveGenesisBlockRoot(context.Background(), finalizedRoot))
 	finalizedCheckpt := &ethpb.Checkpoint{
 		Epoch: 3,
@@ -199,6 +200,9 @@ func TestStatusRPCHandler_ReturnsHelloMessage(t *testing.T) {
 				},
 				ValidatorsRoot: [32]byte{'A'},
 				Genesis:        time.Unix(genTime, 0),
+				FinalizedRoots: map[[32]byte]bool{
+					finalizedRoot: true,
+				},
 			},
 			beaconDB: db,
 		},
@@ -210,7 +214,7 @@ func TestStatusRPCHandler_ReturnsHelloMessage(t *testing.T) {
 	// Setup streams
 	pcl := protocol.ID(p2p.RPCStatusTopicV1)
 	topic := string(pcl)
-	r.rateLimiter.limiterMap[topic] = leakybucket.NewCollector(1, 1, false)
+	r.rateLimiter.limiterMap[topic] = leakybucket.NewCollector(1, 1, time.Second, false)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	p2.BHost.SetStreamHandler(pcl, func(stream network.Stream) {
@@ -261,13 +265,13 @@ func TestHandshakeHandlers_Roundtrip(t *testing.T) {
 		Attnets:   bytesutil.PadTo([]byte{'C', 'D'}, 8),
 	})
 
-	st, err := v1.InitializeFromProto(&ethpb.BeaconState{
+	st, err := state_native.InitializeFromProtoPhase0(&ethpb.BeaconState{
 		Slot: 5,
 	})
 	require.NoError(t, err)
 	blk := util.NewBeaconBlock()
 	blk.Block.Slot = 0
-	require.NoError(t, db.SaveBlock(context.Background(), wrapper.WrappedPhase0SignedBeaconBlock(blk)))
+	util.SaveBlock(t, context.Background(), db, blk)
 	finalizedRoot, err := blk.Block.HashTreeRoot()
 	require.NoError(t, err)
 	require.NoError(t, db.SaveGenesisBlockRoot(context.Background(), finalizedRoot))
@@ -284,6 +288,9 @@ func TestHandshakeHandlers_Roundtrip(t *testing.T) {
 				Genesis:        time.Now(),
 				ValidatorsRoot: [32]byte{'A'},
 				Root:           make([]byte, 32),
+				FinalizedRoots: map[[32]byte]bool{
+					finalizedRoot: true,
+				},
 			},
 			beaconDB: db,
 		},
@@ -310,7 +317,7 @@ func TestHandshakeHandlers_Roundtrip(t *testing.T) {
 	// Setup streams
 	pcl := protocol.ID("/eth2/beacon_chain/req/status/1/ssz_snappy")
 	topic := string(pcl)
-	r.rateLimiter.limiterMap[topic] = leakybucket.NewCollector(1, 1, false)
+	r.rateLimiter.limiterMap[topic] = leakybucket.NewCollector(1, 1, time.Second, false)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	p2.BHost.SetStreamHandler(pcl, func(stream network.Stream) {
@@ -332,7 +339,7 @@ func TestHandshakeHandlers_Roundtrip(t *testing.T) {
 
 	pcl = "/eth2/beacon_chain/req/ping/1/ssz_snappy"
 	topic = string(pcl)
-	r2.rateLimiter.limiterMap[topic] = leakybucket.NewCollector(1, 1, false)
+	r2.rateLimiter.limiterMap[topic] = leakybucket.NewCollector(1, 1, time.Second, false)
 	var wg2 sync.WaitGroup
 	wg2.Add(1)
 	p2.BHost.SetStreamHandler(pcl, func(stream network.Stream) {
@@ -427,7 +434,7 @@ func TestStatusRPCRequest_RequestSent(t *testing.T) {
 	// Setup streams
 	pcl := protocol.ID("/eth2/beacon_chain/req/status/1/ssz_snappy")
 	topic := string(pcl)
-	r.rateLimiter.limiterMap[topic] = leakybucket.NewCollector(1, 1, false)
+	r.rateLimiter.limiterMap[topic] = leakybucket.NewCollector(1, 1, time.Second, false)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	p2.BHost.SetStreamHandler(pcl, func(stream network.Stream) {
@@ -479,7 +486,7 @@ func TestStatusRPCRequest_FinalizedBlockExists(t *testing.T) {
 	require.NoError(t, genesisState.UpdateBlockRootAtIndex(111%uint64(params.BeaconConfig().SlotsPerHistoricalRoot), headRoot))
 	blk := util.NewBeaconBlock()
 	blk.Block.Slot = blkSlot
-	require.NoError(t, db.SaveBlock(context.Background(), wrapper.WrappedPhase0SignedBeaconBlock(blk)))
+	util.SaveBlock(t, context.Background(), db, blk)
 	require.NoError(t, db.SaveGenesisBlockRoot(context.Background(), finalizedRoot))
 	finalizedCheckpt := &ethpb.Checkpoint{
 		Epoch: 3,
@@ -500,6 +507,9 @@ func TestStatusRPCRequest_FinalizedBlockExists(t *testing.T) {
 				},
 				Genesis:        time.Unix(genTime, 0),
 				ValidatorsRoot: [32]byte{'A'},
+				FinalizedRoots: map[[32]byte]bool{
+					finalizedRoot: true,
+				},
 			},
 		},
 		ctx:         context.Background(),
@@ -519,6 +529,9 @@ func TestStatusRPCRequest_FinalizedBlockExists(t *testing.T) {
 				},
 				Genesis:        time.Unix(genTime, 0),
 				ValidatorsRoot: [32]byte{'A'},
+				FinalizedRoots: map[[32]byte]bool{
+					finalizedRoot: true,
+				},
 			},
 			beaconDB: db,
 		},
@@ -529,7 +542,7 @@ func TestStatusRPCRequest_FinalizedBlockExists(t *testing.T) {
 	// Setup streams
 	pcl := protocol.ID("/eth2/beacon_chain/req/status/1/ssz_snappy")
 	topic := string(pcl)
-	r.rateLimiter.limiterMap[topic] = leakybucket.NewCollector(1, 1, false)
+	r.rateLimiter.limiterMap[topic] = leakybucket.NewCollector(1, 1, time.Second, false)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	p2.BHost.SetStreamHandler(pcl, func(stream network.Stream) {
@@ -550,7 +563,7 @@ func TestStatusRPCRequest_FinalizedBlockExists(t *testing.T) {
 }
 
 func TestStatusRPCRequest_FinalizedBlockSkippedSlots(t *testing.T) {
-	db, err := kv.NewKVStore(context.Background(), t.TempDir(), &kv.Config{})
+	db, err := kv.NewKVStore(context.Background(), t.TempDir())
 	require.NoError(t, err)
 	bState, err := transition.GenesisBeaconState(context.Background(), nil, 0, &ethpb.Eth1Data{DepositRoot: make([]byte, 32), BlockHash: make([]byte, 32)})
 	require.NoError(t, err)
@@ -560,7 +573,9 @@ func TestStatusRPCRequest_FinalizedBlockSkippedSlots(t *testing.T) {
 	genRoot, err := blk.Block.HashTreeRoot()
 	require.NoError(t, err)
 
-	require.NoError(t, db.SaveBlock(context.Background(), wrapper.WrappedPhase0SignedBeaconBlock(blk)))
+	wsb, err := consensusblocks.NewSignedBeaconBlock(blk)
+	require.NoError(t, err)
+	require.NoError(t, db.SaveBlock(context.Background(), wsb))
 	require.NoError(t, db.SaveGenesisBlockRoot(context.Background(), genRoot))
 	blocksTillHead := makeBlocks(t, 1, 1000, genRoot)
 	require.NoError(t, db.SaveBlocks(context.Background(), blocksTillHead))
@@ -673,6 +688,10 @@ func TestStatusRPCRequest_FinalizedBlockSkippedSlots(t *testing.T) {
 					},
 					Genesis:        time.Unix(genTime, 0),
 					ValidatorsRoot: [32]byte{'A'},
+					FinalizedRoots: map[[32]byte]bool{
+						tt.expectedFinalizedRoot: true,
+						tt.remoteFinalizedRoot:   true,
+					},
 				},
 			},
 			ctx:         context.Background(),
@@ -692,6 +711,10 @@ func TestStatusRPCRequest_FinalizedBlockSkippedSlots(t *testing.T) {
 					},
 					Genesis:        time.Unix(genTime, 0),
 					ValidatorsRoot: [32]byte{'A'},
+					FinalizedRoots: map[[32]byte]bool{
+						tt.expectedFinalizedRoot: true,
+						tt.remoteFinalizedRoot:   true,
+					},
 				},
 				beaconDB: db,
 			},
@@ -703,7 +726,7 @@ func TestStatusRPCRequest_FinalizedBlockSkippedSlots(t *testing.T) {
 		// Setup streams
 		pcl := protocol.ID("/eth2/beacon_chain/req/status/1/ssz_snappy")
 		topic := string(pcl)
-		r.rateLimiter.limiterMap[topic] = leakybucket.NewCollector(1, 1, false)
+		r.rateLimiter.limiterMap[topic] = leakybucket.NewCollector(1, 1, time.Second, false)
 		var wg sync.WaitGroup
 		wg.Add(1)
 		p2.BHost.SetStreamHandler(pcl, func(stream network.Stream) {
@@ -772,7 +795,7 @@ func TestStatusRPCRequest_BadPeerHandshake(t *testing.T) {
 	// Setup streams
 	pcl := protocol.ID("/eth2/beacon_chain/req/status/1/ssz_snappy")
 	topic := string(pcl)
-	r.rateLimiter.limiterMap[topic] = leakybucket.NewCollector(1, 1, false)
+	r.rateLimiter.limiterMap[topic] = leakybucket.NewCollector(1, 1, time.Second, false)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	p2.BHost.SetStreamHandler(pcl, func(stream network.Stream) {
@@ -927,9 +950,9 @@ func TestShouldResync(t *testing.T) {
 	}
 }
 
-func makeBlocks(t *testing.T, i, n uint64, previousRoot [32]byte) []block.SignedBeaconBlock {
+func makeBlocks(t *testing.T, i, n uint64, previousRoot [32]byte) []interfaces.SignedBeaconBlock {
 	blocks := make([]*ethpb.SignedBeaconBlock, n)
-	ifaceBlocks := make([]block.SignedBeaconBlock, n)
+	ifaceBlocks := make([]interfaces.SignedBeaconBlock, n)
 	for j := i; j < n+i; j++ {
 		parentRoot := make([]byte, 32)
 		copy(parentRoot, previousRoot[:])
@@ -939,7 +962,8 @@ func makeBlocks(t *testing.T, i, n uint64, previousRoot [32]byte) []block.Signed
 		var err error
 		previousRoot, err = blocks[j-i].Block.HashTreeRoot()
 		require.NoError(t, err)
-		ifaceBlocks[j-i] = wrapper.WrappedPhase0SignedBeaconBlock(blocks[j-i])
+		ifaceBlocks[j-i], err = consensusblocks.NewSignedBeaconBlock(blocks[j-i])
+		require.NoError(t, err)
 	}
 	return ifaceBlocks
 }

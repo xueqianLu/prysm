@@ -2,33 +2,33 @@ package client
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/dgraph-io/ristretto"
 	middleware "github.com/grpc-ecosystem/go-grpc-middleware"
-	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
-	grpc_opentracing "github.com/grpc-ecosystem/go-grpc-middleware/tracing/opentracing"
-	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
+	grpcretry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
+	grpcopentracing "github.com/grpc-ecosystem/go-grpc-middleware/tracing/opentracing"
+	grpcprometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/pkg/errors"
-	types "github.com/prysmaticlabs/eth2-types"
-	grpcutil "github.com/prysmaticlabs/prysm/api/grpc"
-	"github.com/prysmaticlabs/prysm/async/event"
-	lruwrpr "github.com/prysmaticlabs/prysm/cache/lru"
-	"github.com/prysmaticlabs/prysm/config/params"
-	"github.com/prysmaticlabs/prysm/encoding/bytesutil"
-	"github.com/prysmaticlabs/prysm/proto/eth/service"
-	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1/block"
-	accountsiface "github.com/prysmaticlabs/prysm/validator/accounts/iface"
-	"github.com/prysmaticlabs/prysm/validator/accounts/wallet"
-	relay "github.com/prysmaticlabs/prysm/validator/client/apirelay"
-	"github.com/prysmaticlabs/prysm/validator/client/iface"
-	"github.com/prysmaticlabs/prysm/validator/db"
-	"github.com/prysmaticlabs/prysm/validator/graffiti"
-	"github.com/prysmaticlabs/prysm/validator/keymanager"
-	"github.com/prysmaticlabs/prysm/validator/keymanager/imported"
+	grpcutil "github.com/prysmaticlabs/prysm/v3/api/grpc"
+	"github.com/prysmaticlabs/prysm/v3/async/event"
+	lruwrpr "github.com/prysmaticlabs/prysm/v3/cache/lru"
+	fieldparams "github.com/prysmaticlabs/prysm/v3/config/fieldparams"
+	"github.com/prysmaticlabs/prysm/v3/config/params"
+	validatorserviceconfig "github.com/prysmaticlabs/prysm/v3/config/validator/service"
+	"github.com/prysmaticlabs/prysm/v3/consensus-types/interfaces"
+	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v3/proto/eth/service"
+	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v3/validator/accounts/wallet"
+	relay "github.com/prysmaticlabs/prysm/v3/validator/client/apirelay"
+	"github.com/prysmaticlabs/prysm/v3/validator/client/iface"
+	"github.com/prysmaticlabs/prysm/v3/validator/db"
+	"github.com/prysmaticlabs/prysm/v3/validator/graffiti"
+	"github.com/prysmaticlabs/prysm/v3/validator/keymanager"
+	"github.com/prysmaticlabs/prysm/v3/validator/keymanager/local"
+	remoteweb3signer "github.com/prysmaticlabs/prysm/v3/validator/keymanager/remote-web3signer"
 	"go.opencensus.io/plugin/ocgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -53,23 +53,25 @@ type ValidatorService struct {
 	useWeb                bool
 	emitAccountMetrics    bool
 	logValidatorBalances  bool
-	logDutyCountDown      bool
+	interopKeysConfig     *local.InteropKeymanagerConfig
 	conn                  *grpc.ClientConn
 	grpcRetryDelay        time.Duration
 	grpcRetries           uint
 	maxCallRecvMsgSize    int
-	walletInitializedFeed *event.Feed
 	cancel                context.CancelFunc
-	db                    db.Database
+	walletInitializedFeed *event.Feed
+	wallet                *wallet.Wallet
+	graffitiStruct        *graffiti.Graffiti
 	dataDir               string
 	withCert              string
 	endpoint              string
-	validator             iface.Validator
 	ctx                   context.Context
-	keyManager            keymanager.IKeymanager
+	validator             iface.Validator
+	db                    db.Database
 	grpcHeaders           []string
 	graffiti              []byte
-	graffitiStruct        *graffiti.Graffiti
+	Web3SignerConfig      *remoteweb3signer.SetupConfig
+	proposerSettings      *validatorserviceconfig.ProposerSettings
 }
 
 // Config for the validator service.
@@ -77,34 +79,35 @@ type Config struct {
 	UseWeb                     bool
 	LogValidatorBalances       bool
 	EmitAccountMetrics         bool
-	LogDutyCountDown           bool
+	InteropKeysConfig          *local.InteropKeymanagerConfig
+	Wallet                     *wallet.Wallet
 	WalletInitializedFeed      *event.Feed
 	GrpcRetriesFlag            uint
-	GrpcRetryDelay             time.Duration
 	GrpcMaxCallRecvMsgSizeFlag int
-	Endpoint                   string
+	GrpcRetryDelay             time.Duration
+	GraffitiStruct             *graffiti.Graffiti
 	Validator                  iface.Validator
 	ValDB                      db.Database
-	KeyManager                 keymanager.IKeymanager
-	GraffitiFlag               string
 	CertFlag                   string
 	DataDir                    string
 	GrpcHeadersFlag            string
-	GraffitiStruct             *graffiti.Graffiti
+	GraffitiFlag               string
+	Endpoint                   string
+	Web3SignerConfig           *remoteweb3signer.SetupConfig
+	ProposerSettings           *validatorserviceconfig.ProposerSettings
 }
 
 // NewValidatorService creates a new validator service for the service
 // registry.
 func NewValidatorService(ctx context.Context, cfg *Config) (*ValidatorService, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	return &ValidatorService{
+	s := &ValidatorService{
 		ctx:                   ctx,
 		cancel:                cancel,
 		endpoint:              cfg.Endpoint,
 		withCert:              cfg.CertFlag,
 		dataDir:               cfg.DataDir,
 		graffiti:              []byte(cfg.GraffitiFlag),
-		keyManager:            cfg.KeyManager,
 		logValidatorBalances:  cfg.LogValidatorBalances,
 		emitAccountMetrics:    cfg.EmitAccountMetrics,
 		maxCallRecvMsgSize:    cfg.GrpcMaxCallRecvMsgSizeFlag,
@@ -113,38 +116,42 @@ func NewValidatorService(ctx context.Context, cfg *Config) (*ValidatorService, e
 		grpcHeaders:           strings.Split(cfg.GrpcHeadersFlag, ","),
 		validator:             cfg.Validator,
 		db:                    cfg.ValDB,
+		wallet:                cfg.Wallet,
 		walletInitializedFeed: cfg.WalletInitializedFeed,
 		useWeb:                cfg.UseWeb,
+		interopKeysConfig:     cfg.InteropKeysConfig,
 		graffitiStruct:        cfg.GraffitiStruct,
-		logDutyCountDown:      cfg.LogDutyCountDown,
-	}, nil
+		Web3SignerConfig:      cfg.Web3SignerConfig,
+		proposerSettings:      cfg.ProposerSettings,
+	}
+
+	dialOpts := ConstructDialOptions(
+		s.maxCallRecvMsgSize,
+		s.withCert,
+		s.grpcRetries,
+		s.grpcRetryDelay,
+	)
+	if dialOpts == nil {
+		return s, nil
+	}
+
+	s.ctx = grpcutil.AppendHeaders(ctx, s.grpcHeaders)
+
+	conn, err := grpc.DialContext(ctx, s.endpoint, dialOpts...)
+	if err != nil {
+		return s, err
+	}
+	if s.withCert != "" {
+		log.Info("Established secure gRPC connection")
+	}
+	s.conn = conn
+
+	return s, nil
 }
 
 // Start the validator service. Launches the main go routine for the validator
 // client.
 func (v *ValidatorService) Start() {
-	dialOpts := ConstructDialOptions(
-		v.maxCallRecvMsgSize,
-		v.withCert,
-		v.grpcRetries,
-		v.grpcRetryDelay,
-	)
-	if dialOpts == nil {
-		return
-	}
-
-	v.ctx = grpcutil.AppendHeaders(v.ctx, v.grpcHeaders)
-
-	conn, err := grpc.DialContext(v.ctx, v.endpoint, dialOpts...)
-	if err != nil {
-		log.Errorf("Could not dial endpoint: %s, %v", v.endpoint, err)
-		return
-	}
-	if v.withCert != "" {
-		log.Info("Established secure gRPC connection")
-	}
-
-	v.conn = conn
 	cache, err := ristretto.NewCache(&ristretto.Config{
 		NumCounters: 1920, // number of keys to track.
 		MaxCost:     192,  // maximum cost of cache, 1 item = 1 cost.
@@ -158,17 +165,17 @@ func (v *ValidatorService) Start() {
 
 	sPubKeys, err := v.db.EIPImportBlacklistedPublicKeys(v.ctx)
 	if err != nil {
-		log.Errorf("Could not read slashable public keys from disk: %v", err)
+		log.WithError(err).Error("Could not read slashable public keys from disk")
 		return
 	}
-	slashablePublicKeys := make(map[[48]byte]bool)
+	slashablePublicKeys := make(map[[fieldparams.BLSPubkeyLength]byte]bool)
 	for _, pubKey := range sPubKeys {
 		slashablePublicKeys[pubKey] = true
 	}
 
 	graffitiOrderedIndex, err := v.db.GraffitiOrderedIndex(v.ctx, v.graffitiStruct.Hash)
 	if err != nil {
-		log.Errorf("Could not read graffiti ordered index from disk: %v", err)
+		log.WithError(err).Error("Could not read graffiti ordered index from disk")
 		return
 	}
 
@@ -184,37 +191,42 @@ func (v *ValidatorService) Start() {
 		beaconClient:                   ethpb.NewBeaconChainClient(v.conn),
 		slashingProtectionClient:       ethpb.NewSlasherClient(v.conn),
 		node:                           ethpb.NewNodeClient(v.conn),
-		keyManager:                     v.keyManager,
 		graffiti:                       v.graffiti,
 		logValidatorBalances:           v.logValidatorBalances,
 		emitAccountMetrics:             v.emitAccountMetrics,
-		startBalances:                  make(map[[48]byte]uint64),
-		prevBalance:                    make(map[[48]byte]uint64),
+		startBalances:                  make(map[[fieldparams.BLSPubkeyLength]byte]uint64),
+		prevBalance:                    make(map[[fieldparams.BLSPubkeyLength]byte]uint64),
+		pubkeyToValidatorIndex:         make(map[[fieldparams.BLSPubkeyLength]byte]types.ValidatorIndex),
+		signedValidatorRegistrations:   make(map[[fieldparams.BLSPubkeyLength]byte]*ethpb.SignedValidatorRegistrationV1),
 		attLogs:                        make(map[[32]byte]*attSubmitted),
 		domainDataCache:                cache,
 		aggregatedSlotCommitteeIDCache: aggregatedSlotCommitteeIDCache,
 		voteStats:                      voteStats{startEpoch: types.Epoch(^uint64(0))},
+		syncCommitteeStats:             syncCommitteeStats{},
 		useWeb:                         v.useWeb,
+		interopKeysConfig:              v.interopKeysConfig,
+		wallet:                         v.wallet,
 		walletInitializedFeed:          v.walletInitializedFeed,
 		blockFeed:                      new(event.Feed),
 		graffitiStruct:                 v.graffitiStruct,
 		graffitiOrderedIndex:           graffitiOrderedIndex,
 		eipImportBlacklistedPublicKeys: slashablePublicKeys,
-		logDutyCountDown:               v.logDutyCountDown,
+		Web3SignerConfig:               v.Web3SignerConfig,
+		proposerSettings:               v.proposerSettings,
+		walletInitializedChannel:       make(chan *wallet.Wallet, 1),
 	}
 	// To resolve a race condition at startup due to the interface
 	// nature of the abstracted block type. We initialize
 	// the inner type of the feed before hand. So that
 	// during future accesses, there will be no panics here
 	// from type incompatibility.
-	tempChan := make(chan block.SignedBeaconBlock)
+	tempChan := make(chan interfaces.SignedBeaconBlock)
 	sub := valStruct.blockFeed.Subscribe(tempChan)
 	sub.Unsubscribe()
 	close(tempChan)
 
 	v.validator = valStruct
 	go run(v.ctx, v.validator)
-	go v.recheckKeys(v.ctx)
 }
 
 // Stop the validator service.
@@ -235,36 +247,22 @@ func (v *ValidatorService) Status() error {
 	return nil
 }
 
-func (v *ValidatorService) recheckKeys(ctx context.Context) {
-	var validatingKeys [][48]byte
-	var err error
-	if v.useWeb {
-		initializedChan := make(chan *wallet.Wallet)
-		sub := v.walletInitializedFeed.Subscribe(initializedChan)
-		cleanup := sub.Unsubscribe
-		defer cleanup()
-		w := <-initializedChan
-		keyManager, err := w.InitializeKeymanager(ctx, accountsiface.InitKeymanagerConfig{ListenForChanges: true})
-		if err != nil {
-			// log.Fatalf will prevent defer from being called
-			cleanup()
-			log.Fatalf("Could not read keymanager for wallet: %v", err)
-		}
-		v.keyManager = keyManager
-	}
-	validatingKeys, err = v.keyManager.FetchValidatingPublicKeys(ctx)
-	if err != nil {
-		log.WithError(err).Debug("Could not fetch validating keys")
-	}
-	if err := v.db.UpdatePublicKeysBuckets(validatingKeys); err != nil {
-		log.WithError(err).Debug("Could not update public keys buckets")
-	}
-	go recheckValidatingKeysBucket(ctx, v.db, v.keyManager)
-	for _, key := range validatingKeys {
-		log.WithField(
-			"publicKey", fmt.Sprintf("%#x", bytesutil.Trunc(key[:])),
-		).Info("Validating for public key")
-	}
+// InteropKeysConfig returns the useInteropKeys flag.
+func (v *ValidatorService) InteropKeysConfig() *local.InteropKeymanagerConfig {
+	return v.interopKeysConfig
+}
+
+func (v *ValidatorService) Keymanager() (keymanager.IKeymanager, error) {
+	return v.validator.Keymanager()
+}
+
+func (v *ValidatorService) ProposerSettings() *validatorserviceconfig.ProposerSettings {
+	return v.validator.ProposerSettings()
+}
+
+func (v *ValidatorService) SetProposerSettings(settings *validatorserviceconfig.ProposerSettings) {
+	v.proposerSettings = settings
+	v.validator.SetProposerSettings(settings)
 }
 
 // ConstructDialOptions constructs a list of grpc dial options
@@ -279,7 +277,7 @@ func ConstructDialOptions(
 	if withCert != "" {
 		creds, err := credentials.NewClientTLSFromFile(withCert, "")
 		if err != nil {
-			log.Errorf("Could not get valid credentials: %v", err)
+			log.WithError(err).Error("Could not get valid credentials")
 			return nil
 		}
 		transportSecurity = grpc.WithTransportCredentials(creds)
@@ -298,21 +296,21 @@ func ConstructDialOptions(
 		transportSecurity,
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(maxCallRecvMsgSize),
-			grpc_retry.WithMax(grpcRetries),
-			grpc_retry.WithBackoff(grpc_retry.BackoffLinear(grpcRetryDelay)),
+			grpcretry.WithMax(grpcRetries),
+			grpcretry.WithBackoff(grpcretry.BackoffLinear(grpcRetryDelay)),
 		),
 		grpc.WithStatsHandler(&ocgrpc.ClientHandler{}),
 		grpc.WithUnaryInterceptor(middleware.ChainUnaryClient(
-			grpc_opentracing.UnaryClientInterceptor(),
-			grpc_prometheus.UnaryClientInterceptor,
-			grpc_retry.UnaryClientInterceptor(),
+			grpcopentracing.UnaryClientInterceptor(),
+			grpcprometheus.UnaryClientInterceptor,
+			grpcretry.UnaryClientInterceptor(),
 			grpcutil.LogRequests,
 		)),
 		grpc.WithChainStreamInterceptor(
 			grpcutil.LogStream,
-			grpc_opentracing.StreamClientInterceptor(),
-			grpc_prometheus.StreamClientInterceptor,
-			grpc_retry.StreamClientInterceptor(),
+			grpcopentracing.StreamClientInterceptor(),
+			grpcprometheus.StreamClientInterceptor,
+			grpcretry.StreamClientInterceptor(),
 		),
 		grpc.WithResolvers(&multipleEndpointsGrpcResolverBuilder{}),
 	}
@@ -336,33 +334,4 @@ func (v *ValidatorService) Syncing(ctx context.Context) (bool, error) {
 func (v *ValidatorService) GenesisInfo(ctx context.Context) (*ethpb.Genesis, error) {
 	nc := ethpb.NewNodeClient(v.conn)
 	return nc.GetGenesis(ctx, &emptypb.Empty{})
-}
-
-// to accounts changes in the keymanager, then updates those keys'
-// buckets in bolt DB if a bucket for a key does not exist.
-func recheckValidatingKeysBucket(ctx context.Context, valDB db.Database, km keymanager.IKeymanager) {
-	importedKeymanager, ok := km.(*imported.Keymanager)
-	if !ok {
-		return
-	}
-	validatingPubKeysChan := make(chan [][48]byte, 1)
-	sub := importedKeymanager.SubscribeAccountChanges(validatingPubKeysChan)
-	defer func() {
-		sub.Unsubscribe()
-		close(validatingPubKeysChan)
-	}()
-	for {
-		select {
-		case keys := <-validatingPubKeysChan:
-			if err := valDB.UpdatePublicKeysBuckets(keys); err != nil {
-				log.WithError(err).Debug("Could not update public keys buckets")
-				continue
-			}
-		case <-ctx.Done():
-			return
-		case <-sub.Err():
-			log.Error("Subscriber closed, exiting goroutine")
-			return
-		}
-	}
 }

@@ -4,10 +4,10 @@ import (
 	"testing"
 
 	"github.com/prysmaticlabs/go-bitfield"
-	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1/wrapper"
-	"github.com/prysmaticlabs/prysm/testing/require"
-	"github.com/prysmaticlabs/prysm/testing/util"
+	"github.com/prysmaticlabs/prysm/v3/consensus-types/blocks"
+	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v3/testing/require"
+	"github.com/prysmaticlabs/prysm/v3/testing/util"
 	logTest "github.com/sirupsen/logrus/hooks/test"
 )
 
@@ -49,11 +49,11 @@ func TestProcessSyncAggregate(t *testing.T) {
 		},
 	}
 
-	wrappedBlock, err := wrapper.WrappedAltairBeaconBlock(block)
+	wrappedBlock, err := blocks.NewBeaconBlock(block)
 	require.NoError(t, err)
 
 	s.processSyncAggregate(beaconState, wrappedBlock)
-	require.LogsContain(t, hook, "\"Sync committee contribution included\" BalanceChange=0 Contributions=1 ExpectedContrib=4 NewBalance=32000000000 ValidatorIndex=1 prefix=monitor")
-	require.LogsContain(t, hook, "\"Sync committee contribution included\" BalanceChange=100000000 Contributions=2 ExpectedContrib=2 NewBalance=32000000000 ValidatorIndex=12 prefix=monitor")
+	require.LogsContain(t, hook, "\"Sync committee contribution included\" BalanceChange=0 ContribCount=1 ExpectedContribCount=4 NewBalance=32000000000 ValidatorIndex=1 prefix=monitor")
+	require.LogsContain(t, hook, "\"Sync committee contribution included\" BalanceChange=100000000 ContribCount=2 ExpectedContribCount=2 NewBalance=32000000000 ValidatorIndex=12 prefix=monitor")
 	require.LogsDoNotContain(t, hook, "ValidatorIndex=2")
 }

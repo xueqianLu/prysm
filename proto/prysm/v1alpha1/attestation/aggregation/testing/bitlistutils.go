@@ -4,11 +4,11 @@ import (
 	"math/rand"
 	"testing"
 
-	types "github.com/prysmaticlabs/eth2-types"
 	"github.com/prysmaticlabs/go-bitfield"
-	"github.com/prysmaticlabs/prysm/crypto/bls"
-	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/time"
+	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v3/crypto/bls"
+	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v3/time"
 )
 
 // BitlistWithAllBitsSet creates list of bitlists with all bits set.
@@ -50,7 +50,7 @@ func BitlistsWithMultipleBitSet(t testing.TB, n, length, count uint64) []bitfiel
 	lists := make([]bitfield.Bitlist, n)
 	for i := uint64(0); i < n; i++ {
 		b := bitfield.NewBitlist(length)
-		keys := rand.Perm(int(length))
+		keys := rand.Perm(int(length)) // lint:ignore uintcast -- This is safe in test code.
 		for _, key := range keys[:count] {
 			b.SetBitAt(uint64(key), true)
 		}
@@ -67,7 +67,7 @@ func Bitlists64WithMultipleBitSet(t testing.TB, n, length, count uint64) []*bitf
 	lists := make([]*bitfield.Bitlist64, n)
 	for i := uint64(0); i < n; i++ {
 		b := bitfield.NewBitlist64(length)
-		keys := rand.Perm(int(length))
+		keys := rand.Perm(int(length)) // lint:ignore uintcast -- This is safe in test code.
 		for _, key := range keys[:count] {
 			b.SetBitAt(uint64(key), true)
 		}

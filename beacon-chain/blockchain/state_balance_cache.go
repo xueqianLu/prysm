@@ -5,13 +5,11 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/prysmaticlabs/prysm/beacon-chain/core/helpers"
-	"github.com/prysmaticlabs/prysm/beacon-chain/core/time"
-	"github.com/prysmaticlabs/prysm/beacon-chain/state"
-	"github.com/prysmaticlabs/prysm/beacon-chain/state/stategen"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/helpers"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/time"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/state"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/state/stategen"
 )
-
-var errNilStateFromStategen = errors.New("justified state can't be nil")
 
 type stateBalanceCache struct {
 	sync.Mutex
@@ -24,7 +22,7 @@ type stateByRooter interface {
 	StateByRoot(context.Context, [32]byte) (state.BeaconState, error)
 }
 
-// newStateBalanceCache exists to remind us that stateBalanceCache needs a stagegen
+// newStateBalanceCache exists to remind us that stateBalanceCache needs a state gen
 // to avoid nil pointer bugs when updating the cache in the read path (get())
 func newStateBalanceCache(sg *stategen.State) (*stateBalanceCache, error) {
 	if sg == nil {
@@ -37,7 +35,7 @@ func newStateBalanceCache(sg *stategen.State) (*stateBalanceCache, error) {
 // the previously read value. This cache assumes we only want to cache one
 // set of balances for a single root (the current justified root).
 //
-// warning: this is not thread-safe on its own, relies on get() for locking
+// WARNING: this is not thread-safe on its own, relies on get() for locking
 func (c *stateBalanceCache) update(ctx context.Context, justifiedRoot [32]byte) ([]uint64, error) {
 	stateBalanceCacheMiss.Inc()
 	justifiedState, err := c.stateGen.StateByRoot(ctx, justifiedRoot)
@@ -73,7 +71,8 @@ func (c *stateBalanceCache) update(ctx context.Context, justifiedRoot [32]byte) 
 func (c *stateBalanceCache) get(ctx context.Context, justifiedRoot [32]byte) ([]uint64, error) {
 	c.Lock()
 	defer c.Unlock()
-	if justifiedRoot == c.root {
+
+	if justifiedRoot != [32]byte{} && justifiedRoot == c.root {
 		stateBalanceCacheHit.Inc()
 		return c.balances, nil
 	}

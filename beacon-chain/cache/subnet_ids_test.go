@@ -3,9 +3,10 @@ package cache
 import (
 	"testing"
 
-	types "github.com/prysmaticlabs/eth2-types"
-	"github.com/prysmaticlabs/prysm/testing/assert"
-	"github.com/prysmaticlabs/prysm/testing/require"
+	fieldparams "github.com/prysmaticlabs/prysm/v3/config/fieldparams"
+	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v3/testing/assert"
+	"github.com/prysmaticlabs/prysm/v3/testing/require"
 )
 
 func TestSubnetIDsCache_RoundTrip(t *testing.T) {
@@ -46,12 +47,12 @@ func TestSubnetIDsCache_PersistentCommitteeRoundtrip(t *testing.T) {
 	c := newSubnetIDs()
 
 	for i := 0; i < 20; i++ {
-		pubkey := [48]byte{byte(i)}
+		pubkey := [fieldparams.BLSPubkeyLength]byte{byte(i)}
 		c.AddPersistentCommittee(pubkey[:], []uint64{uint64(i)}, 0)
 	}
 
 	for i := uint64(0); i < 20; i++ {
-		pubkey := [48]byte{byte(i)}
+		pubkey := [fieldparams.BLSPubkeyLength]byte{byte(i)}
 
 		idxs, ok, _ := c.GetPersistentSubnets(pubkey[:])
 		if !ok {

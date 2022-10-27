@@ -8,13 +8,15 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	types "github.com/prysmaticlabs/eth2-types"
-	"github.com/prysmaticlabs/prysm/beacon-chain/blockchain"
-	"github.com/prysmaticlabs/prysm/beacon-chain/core/helpers"
-	"github.com/prysmaticlabs/prysm/beacon-chain/db"
-	"github.com/prysmaticlabs/prysm/beacon-chain/state"
-	"github.com/prysmaticlabs/prysm/beacon-chain/state/stategen"
-	"github.com/prysmaticlabs/prysm/encoding/bytesutil"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/blockchain"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/db"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/state"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/state/stategen"
+	"github.com/prysmaticlabs/prysm/v3/config/params"
+	"github.com/prysmaticlabs/prysm/v3/consensus-types/blocks"
+	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
+	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
+	"go.opencensus.io/trace"
 )
 
 // StateIdParseError represents an error scenario where a state ID could not be parsed.
@@ -72,6 +74,7 @@ func (e *StateRootNotFoundError) Error() string {
 type Fetcher interface {
 	State(ctx context.Context, stateId []byte) (state.BeaconState, error)
 	StateRoot(ctx context.Context, stateId []byte) ([]byte, error)
+	StateBySlot(ctx context.Context, slot types.Slot) (state.BeaconState, error)
 }
 
 // StateProvider is a real implementation of Fetcher.
@@ -80,6 +83,7 @@ type StateProvider struct {
 	ChainInfoFetcher   blockchain.ChainInfoFetcher
 	GenesisTimeFetcher blockchain.TimeFetcher
 	StateGenService    stategen.StateManager
+	ReplayerBuilder    stategen.ReplayerBuilder
 }
 
 // State returns the BeaconState for a given identifier. The identifier can be one of:
@@ -103,7 +107,7 @@ func (p *StateProvider) State(ctx context.Context, stateId []byte) (state.Beacon
 			return nil, errors.Wrap(err, "could not get head state")
 		}
 	case "genesis":
-		s, err = p.BeaconDB.GenesisState(ctx)
+		s, err = p.StateBySlot(ctx, params.BeaconConfig().GenesisSlot)
 		if err != nil {
 			return nil, errors.Wrap(err, "could not get genesis state")
 		}
@@ -121,7 +125,7 @@ func (p *StateProvider) State(ctx context.Context, stateId []byte) (state.Beacon
 		}
 	default:
 		if len(stateId) == 32 {
-			s, err = p.stateByHex(ctx, stateId)
+			s, err = p.stateByRoot(ctx, stateId)
 		} else {
 			slotNumber, parseErr := strconv.ParseUint(stateIdString, 10, 64)
 			if parseErr != nil {
@@ -129,7 +133,7 @@ func (p *StateProvider) State(ctx context.Context, stateId []byte) (state.Beacon
 				e := NewStateIdParseError(parseErr)
 				return nil, &e
 			}
-			s, err = p.stateBySlot(ctx, types.Slot(slotNumber))
+			s, err = p.StateBySlot(ctx, types.Slot(slotNumber))
 		}
 	}
 
@@ -156,7 +160,7 @@ func (p *StateProvider) StateRoot(ctx context.Context, stateId []byte) (root []b
 		root, err = p.justifiedStateRoot(ctx)
 	default:
 		if len(stateId) == 32 {
-			root, err = p.stateRootByHex(ctx, stateId)
+			root, err = p.stateRootByRoot(ctx, stateId)
 		} else {
 			slotNumber, parseErr := strconv.ParseUint(stateIdString, 10, 64)
 			if parseErr != nil {
@@ -171,13 +175,13 @@ func (p *StateProvider) StateRoot(ctx context.Context, stateId []byte) (root []b
 	return root, err
 }
 
-func (p *StateProvider) stateByHex(ctx context.Context, stateId []byte) (state.BeaconState, error) {
+func (p *StateProvider) stateByRoot(ctx context.Context, stateRoot []byte) (state.BeaconState, error) {
 	headState, err := p.ChainInfoFetcher.HeadState(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "could not get head state")
 	}
 	for i, root := range headState.StateRoots() {
-		if bytes.Equal(root, stateId) {
+		if bytes.Equal(root, stateRoot) {
 			blockRoot := headState.BlockRoots()[i]
 			return p.StateGenService.StateByRoot(ctx, bytesutil.ToBytes32(blockRoot))
 		}
@@ -187,16 +191,28 @@ func (p *StateProvider) stateByHex(ctx context.Context, stateId []byte) (state.B
 	return nil, &stateNotFoundErr
 }
 
-func (p *StateProvider) stateBySlot(ctx context.Context, slot types.Slot) (state.BeaconState, error) {
-	currentSlot := p.GenesisTimeFetcher.CurrentSlot()
-	if slot > currentSlot {
-		return nil, errors.New("slot cannot be in the future")
+// StateBySlot returns the post-state for the requested slot. To generate the state, it uses the
+// most recent canonical state prior to the target slot, and all canonical blocks
+// between the found state's slot and the target slot.
+// process_blocks is applied for all canonical blocks, and process_slots is called for any skipped
+// slots, or slots following the most recent canonical block up to and including the target slot.
+func (p *StateProvider) StateBySlot(ctx context.Context, target types.Slot) (state.BeaconState, error) {
+	ctx, span := trace.StartSpan(ctx, "statefetcher.StateBySlot")
+	defer span.End()
+
+	if target > p.GenesisTimeFetcher.CurrentSlot() {
+		return nil, errors.New("requested slot is in the future")
 	}
-	state, err := p.StateGenService.StateBySlot(ctx, slot)
+	if target > p.ChainInfoFetcher.HeadSlot() {
+		return nil, errors.New("requested slot number is higher than head slot number")
+	}
+
+	st, err := p.ReplayerBuilder.ReplayerForSlot(target).ReplayBlocks(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "could not get state")
+		msg := fmt.Sprintf("error while replaying history to slot=%d", target)
+		return nil, errors.Wrap(err, msg)
 	}
-	return state, nil
+	return st, nil
 }
 
 func (p *StateProvider) headStateRoot(ctx context.Context) ([]byte, error) {
@@ -204,10 +220,11 @@ func (p *StateProvider) headStateRoot(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "could not get head block")
 	}
-	if err := helpers.BeaconBlockIsNil(b); err != nil {
+	if err = blocks.BeaconBlockIsNil(b); err != nil {
 		return nil, err
 	}
-	return b.Block().StateRoot(), nil
+	stateRoot := b.Block().StateRoot()
+	return stateRoot[:], nil
 }
 
 func (p *StateProvider) genesisStateRoot(ctx context.Context) ([]byte, error) {
@@ -215,10 +232,11 @@ func (p *StateProvider) genesisStateRoot(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "could not get genesis block")
 	}
-	if err := helpers.BeaconBlockIsNil(b); err != nil {
+	if err := blocks.BeaconBlockIsNil(b); err != nil {
 		return nil, err
 	}
-	return b.Block().StateRoot(), nil
+	stateRoot := b.Block().StateRoot()
+	return stateRoot[:], nil
 }
 
 func (p *StateProvider) finalizedStateRoot(ctx context.Context) ([]byte, error) {
@@ -230,10 +248,11 @@ func (p *StateProvider) finalizedStateRoot(ctx context.Context) ([]byte, error) 
 	if err != nil {
 		return nil, errors.Wrap(err, "could not get finalized block")
 	}
-	if err := helpers.BeaconBlockIsNil(b); err != nil {
+	if err := blocks.BeaconBlockIsNil(b); err != nil {
 		return nil, err
 	}
-	return b.Block().StateRoot(), nil
+	stateRoot := b.Block().StateRoot()
+	return stateRoot[:], nil
 }
 
 func (p *StateProvider) justifiedStateRoot(ctx context.Context) ([]byte, error) {
@@ -245,22 +264,23 @@ func (p *StateProvider) justifiedStateRoot(ctx context.Context) ([]byte, error) 
 	if err != nil {
 		return nil, errors.Wrap(err, "could not get justified block")
 	}
-	if err := helpers.BeaconBlockIsNil(b); err != nil {
+	if err := blocks.BeaconBlockIsNil(b); err != nil {
 		return nil, err
 	}
-	return b.Block().StateRoot(), nil
+	stateRoot := b.Block().StateRoot()
+	return stateRoot[:], nil
 }
 
-func (p *StateProvider) stateRootByHex(ctx context.Context, stateId []byte) ([]byte, error) {
-	var stateRoot [32]byte
-	copy(stateRoot[:], stateId)
+func (p *StateProvider) stateRootByRoot(ctx context.Context, stateRoot []byte) ([]byte, error) {
+	var r [32]byte
+	copy(r[:], stateRoot)
 	headState, err := p.ChainInfoFetcher.HeadState(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "could not get head state")
 	}
 	for _, root := range headState.StateRoots() {
-		if bytes.Equal(root, stateRoot[:]) {
-			return stateRoot[:], nil
+		if bytes.Equal(root, r[:]) {
+			return r[:], nil
 		}
 	}
 
@@ -273,11 +293,11 @@ func (p *StateProvider) stateRootBySlot(ctx context.Context, slot types.Slot) ([
 	if slot > currentSlot {
 		return nil, errors.New("slot cannot be in the future")
 	}
-	found, blks, err := p.BeaconDB.BlocksBySlot(ctx, slot)
+	blks, err := p.BeaconDB.BlocksBySlot(ctx, slot)
 	if err != nil {
 		return nil, errors.Wrap(err, "could not get blocks")
 	}
-	if !found {
+	if len(blks) == 0 {
 		return nil, errors.New("no block exists")
 	}
 	if len(blks) != 1 {
@@ -286,5 +306,6 @@ func (p *StateProvider) stateRootBySlot(ctx context.Context, slot types.Slot) ([
 	if blks[0] == nil || blks[0].Block() == nil {
 		return nil, errors.New("nil block")
 	}
-	return blks[0].Block().StateRoot(), nil
+	stateRoot := blks[0].Block().StateRoot()
+	return stateRoot[:], nil
 }

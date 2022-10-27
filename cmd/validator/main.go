@@ -11,25 +11,25 @@ import (
 	runtimeDebug "runtime/debug"
 
 	joonix "github.com/joonix/log"
-	"github.com/prysmaticlabs/prysm/cmd"
-	accountcommands "github.com/prysmaticlabs/prysm/cmd/validator/accounts"
-	dbcommands "github.com/prysmaticlabs/prysm/cmd/validator/db"
-	"github.com/prysmaticlabs/prysm/cmd/validator/flags"
-	slashingprotectioncommands "github.com/prysmaticlabs/prysm/cmd/validator/slashing-protection"
-	walletcommands "github.com/prysmaticlabs/prysm/cmd/validator/wallet"
-	"github.com/prysmaticlabs/prysm/cmd/validator/web"
-	"github.com/prysmaticlabs/prysm/config/features"
-	"github.com/prysmaticlabs/prysm/io/file"
-	"github.com/prysmaticlabs/prysm/io/logs"
-	"github.com/prysmaticlabs/prysm/monitoring/journald"
-	"github.com/prysmaticlabs/prysm/runtime/debug"
-	_ "github.com/prysmaticlabs/prysm/runtime/maxprocs"
-	"github.com/prysmaticlabs/prysm/runtime/tos"
-	"github.com/prysmaticlabs/prysm/runtime/version"
-	"github.com/prysmaticlabs/prysm/validator/node"
+	"github.com/prysmaticlabs/prysm/v3/cmd"
+	accountcommands "github.com/prysmaticlabs/prysm/v3/cmd/validator/accounts"
+	dbcommands "github.com/prysmaticlabs/prysm/v3/cmd/validator/db"
+	"github.com/prysmaticlabs/prysm/v3/cmd/validator/flags"
+	slashingprotectioncommands "github.com/prysmaticlabs/prysm/v3/cmd/validator/slashing-protection"
+	walletcommands "github.com/prysmaticlabs/prysm/v3/cmd/validator/wallet"
+	"github.com/prysmaticlabs/prysm/v3/cmd/validator/web"
+	"github.com/prysmaticlabs/prysm/v3/config/features"
+	"github.com/prysmaticlabs/prysm/v3/io/file"
+	"github.com/prysmaticlabs/prysm/v3/io/logs"
+	"github.com/prysmaticlabs/prysm/v3/monitoring/journald"
+	"github.com/prysmaticlabs/prysm/v3/runtime/debug"
+	prefixed "github.com/prysmaticlabs/prysm/v3/runtime/logging/logrus-prefixed-formatter"
+	_ "github.com/prysmaticlabs/prysm/v3/runtime/maxprocs"
+	"github.com/prysmaticlabs/prysm/v3/runtime/tos"
+	"github.com/prysmaticlabs/prysm/v3/runtime/version"
+	"github.com/prysmaticlabs/prysm/v3/validator/node"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
-	prefixed "github.com/x-cray/logrus-prefixed-formatter"
 )
 
 func startNode(ctx *cli.Context) error {
@@ -64,16 +64,24 @@ var appFlags = []cli.Flag{
 	flags.GrpcHeadersFlag,
 	flags.GPRCGatewayCorsDomain,
 	flags.DisableAccountMetricsFlag,
-	cmd.MonitoringHostFlag,
 	flags.MonitoringPortFlag,
-	cmd.DisableMonitoringFlag,
 	flags.SlasherRPCProviderFlag,
 	flags.SlasherCertFlag,
 	flags.WalletPasswordFileFlag,
 	flags.WalletDirFlag,
 	flags.EnableWebFlag,
 	flags.GraffitiFileFlag,
-	flags.EnableDutyCountDown,
+	// Consensys' Web3Signer flags
+	flags.Web3SignerURLFlag,
+	flags.Web3SignerPublicValidatorKeysFlag,
+	flags.SuggestedFeeRecipientFlag,
+	flags.ProposerSettingsURLFlag,
+	flags.ProposerSettingsFlag,
+	flags.EnableBuilderFlag,
+	flags.BuilderGasLimitFlag,
+	////////////////////
+	cmd.DisableMonitoringFlag,
+	cmd.MonitoringHostFlag,
 	cmd.BackupWebhookOutputDir,
 	cmd.EnableBackupWebhookFlag,
 	cmd.MinimalConfigFlag,
@@ -91,7 +99,7 @@ var appFlags = []cli.Flag{
 	cmd.ConfigFileFlag,
 	cmd.ChainConfigFileFlag,
 	cmd.GrpcMaxCallRecvMsgSizeFlag,
-	cmd.BoltMMapInitialSizeFlag,
+	cmd.ApiTimeoutFlag,
 	debug.PProfFlag,
 	debug.PProfAddrFlag,
 	debug.PProfPortFlag,

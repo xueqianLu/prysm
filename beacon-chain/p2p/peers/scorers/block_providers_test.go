@@ -7,21 +7,21 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/prysmaticlabs/prysm/beacon-chain/p2p/peers"
-	"github.com/prysmaticlabs/prysm/beacon-chain/p2p/peers/scorers"
-	"github.com/prysmaticlabs/prysm/cmd/beacon-chain/flags"
-	"github.com/prysmaticlabs/prysm/config/features"
-	"github.com/prysmaticlabs/prysm/crypto/rand"
-	"github.com/prysmaticlabs/prysm/testing/assert"
-	"github.com/prysmaticlabs/prysm/time"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/peers"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/peers/scorers"
+	"github.com/prysmaticlabs/prysm/v3/cmd/beacon-chain/flags"
+	"github.com/prysmaticlabs/prysm/v3/config/features"
+	"github.com/prysmaticlabs/prysm/v3/crypto/rand"
+	"github.com/prysmaticlabs/prysm/v3/testing/assert"
+	"github.com/prysmaticlabs/prysm/v3/time"
 )
 
 func TestScorers_BlockProvider_Score(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	batchSize := flags.Get().BlockBatchLimit
+	batchSize := uint64(flags.Get().BlockBatchLimit)
 	tests := []struct {
 		name   string
 		update func(scorer *scorers.BlockProviderScorer)
@@ -160,7 +160,7 @@ func TestScorers_BlockProvider_WeightSorted(t *testing.T) {
 		},
 	})
 	scorer := peerStatuses.Scorers().BlockProviderScorer()
-	batchSize := flags.Get().BlockBatchLimit
+	batchSize := uint64(flags.Get().BlockBatchLimit)
 	r := rand.NewDeterministicGenerator()
 
 	reverse := func(pids []peer.ID) []peer.ID {
@@ -214,7 +214,7 @@ func TestScorers_BlockProvider_WeightSorted(t *testing.T) {
 }
 
 func TestScorers_BlockProvider_Sorted(t *testing.T) {
-	batchSize := flags.Get().BlockBatchLimit
+	batchSize := uint64(flags.Get().BlockBatchLimit)
 	tests := []struct {
 		name   string
 		update func(s *scorers.BlockProviderScorer)
@@ -309,7 +309,7 @@ func TestScorers_BlockProvider_Sorted(t *testing.T) {
 func TestScorers_BlockProvider_MaxScore(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	batchSize := flags.Get().BlockBatchLimit
+	batchSize := uint64(flags.Get().BlockBatchLimit)
 
 	tests := []struct {
 		name string
@@ -347,7 +347,7 @@ func TestScorers_BlockProvider_MaxScore(t *testing.T) {
 func TestScorers_BlockProvider_FormatScorePretty(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	batchSize := flags.Get().BlockBatchLimit
+	batchSize := uint64(flags.Get().BlockBatchLimit)
 	format := "[%0.1f%%, raw: %0.2f,  blocks: %d/1280]"
 
 	tests := []struct {

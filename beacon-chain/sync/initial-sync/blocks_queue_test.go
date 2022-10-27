@@ -6,25 +6,25 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kevinms/leakybucket-go"
-	"github.com/libp2p/go-libp2p-core/peer"
-	types "github.com/prysmaticlabs/eth2-types"
-	mock "github.com/prysmaticlabs/prysm/beacon-chain/blockchain/testing"
-	dbtest "github.com/prysmaticlabs/prysm/beacon-chain/db/testing"
-	"github.com/prysmaticlabs/prysm/beacon-chain/p2p/peers"
-	p2pt "github.com/prysmaticlabs/prysm/beacon-chain/p2p/testing"
-	beaconsync "github.com/prysmaticlabs/prysm/beacon-chain/sync"
-	"github.com/prysmaticlabs/prysm/cmd/beacon-chain/flags"
-	"github.com/prysmaticlabs/prysm/container/slice"
-	"github.com/prysmaticlabs/prysm/encoding/bytesutil"
-	eth "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1/block"
-	"github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1/wrapper"
-	"github.com/prysmaticlabs/prysm/testing/assert"
-	"github.com/prysmaticlabs/prysm/testing/require"
-	"github.com/prysmaticlabs/prysm/testing/util"
-	prysmTime "github.com/prysmaticlabs/prysm/time"
-	"github.com/prysmaticlabs/prysm/time/slots"
+	"github.com/libp2p/go-libp2p/core/peer"
+	mock "github.com/prysmaticlabs/prysm/v3/beacon-chain/blockchain/testing"
+	dbtest "github.com/prysmaticlabs/prysm/v3/beacon-chain/db/testing"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/peers"
+	p2pt "github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/testing"
+	beaconsync "github.com/prysmaticlabs/prysm/v3/beacon-chain/sync"
+	"github.com/prysmaticlabs/prysm/v3/cmd/beacon-chain/flags"
+	"github.com/prysmaticlabs/prysm/v3/consensus-types/blocks"
+	"github.com/prysmaticlabs/prysm/v3/consensus-types/interfaces"
+	types "github.com/prysmaticlabs/prysm/v3/consensus-types/primitives"
+	leakybucket "github.com/prysmaticlabs/prysm/v3/container/leaky-bucket"
+	"github.com/prysmaticlabs/prysm/v3/container/slice"
+	"github.com/prysmaticlabs/prysm/v3/encoding/bytesutil"
+	eth "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v3/testing/assert"
+	"github.com/prysmaticlabs/prysm/v3/testing/require"
+	"github.com/prysmaticlabs/prysm/v3/testing/util"
+	prysmTime "github.com/prysmaticlabs/prysm/v3/time"
+	"github.com/prysmaticlabs/prysm/v3/time/slots"
 	logTest "github.com/sirupsen/logrus/hooks/test"
 )
 
@@ -134,6 +134,11 @@ func TestBlocksQueue_InitStartStop(t *testing.T) {
 }
 
 func TestBlocksQueue_Loop(t *testing.T) {
+	currentPeriod := blockLimiterPeriod
+	blockLimiterPeriod = 1 * time.Second
+	defer func() {
+		blockLimiterPeriod = currentPeriod
+	}()
 	tests := []struct {
 		name                string
 		highestExpectedSlot types.Slot
@@ -254,8 +259,8 @@ func TestBlocksQueue_Loop(t *testing.T) {
 				highestExpectedSlot: tt.highestExpectedSlot,
 			})
 			assert.NoError(t, queue.start())
-			processBlock := func(block block.SignedBeaconBlock) error {
-				if !beaconDB.HasBlock(ctx, bytesutil.ToBytes32(block.Block().ParentRoot())) {
+			processBlock := func(block interfaces.SignedBeaconBlock) error {
+				if !beaconDB.HasBlock(ctx, block.Block().ParentRoot()) {
 					return fmt.Errorf("%w: %#x", errParentDoesNotExist, block.Block().ParentRoot())
 				}
 				root, err := block.Block().HashTreeRoot()
@@ -265,7 +270,7 @@ func TestBlocksQueue_Loop(t *testing.T) {
 				return mc.ReceiveBlock(ctx, block, root)
 			}
 
-			var blocks []block.SignedBeaconBlock
+			var blocks []interfaces.SignedBeaconBlock
 			for data := range queue.fetchedData {
 				for _, block := range data.blocks {
 					if err := processBlock(block); err != nil {
@@ -521,20 +526,23 @@ func TestBlocksQueue_onDataReceivedEvent(t *testing.T) {
 			chain:               mc,
 			highestExpectedSlot: types.Slot(blockBatchLimit),
 		})
-
+		wsb, err := blocks.NewSignedBeaconBlock(util.NewBeaconBlock())
+		require.NoError(t, err)
 		handlerFn := queue.onDataReceivedEvent(ctx)
+		wsbCopy, err := wsb.Copy()
+		require.NoError(t, err)
 		response := &fetchRequestResponse{
 			pid: "abc",
-			blocks: []block.SignedBeaconBlock{
-				wrapper.WrappedPhase0SignedBeaconBlock(util.NewBeaconBlock()),
-				wrapper.WrappedPhase0SignedBeaconBlock(util.NewBeaconBlock()),
+			blocks: []interfaces.SignedBeaconBlock{
+				wsb,
+				wsbCopy,
 			},
 		}
 		fsm := &stateMachine{
 			state: stateScheduled,
 		}
 		assert.Equal(t, peer.ID(""), fsm.pid)
-		assert.DeepSSZEqual(t, []block.SignedBeaconBlock(nil), fsm.blocks)
+		assert.DeepSSZEqual(t, []interfaces.SignedBeaconBlock(nil), fsm.blocks)
 		updatedState, err := handlerFn(fsm, response)
 		assert.NoError(t, err)
 		assert.Equal(t, stateDataParsed, updatedState)
@@ -617,12 +625,14 @@ func TestBlocksQueue_onReadyToSendEvent(t *testing.T) {
 			chain:               mc,
 			highestExpectedSlot: types.Slot(blockBatchLimit),
 		})
+		wsb, err := blocks.NewSignedBeaconBlock(util.NewBeaconBlock())
+		require.NoError(t, err)
 		queue.smm.addStateMachine(256)
 		queue.smm.addStateMachine(320)
 		queue.smm.machines[256].state = stateDataParsed
 		queue.smm.machines[256].pid = pidDataParsed
-		queue.smm.machines[256].blocks = []block.SignedBeaconBlock{
-			wrapper.WrappedPhase0SignedBeaconBlock(util.NewBeaconBlock()),
+		queue.smm.machines[256].blocks = []interfaces.SignedBeaconBlock{
+			wsb,
 		}
 
 		handlerFn := queue.onReadyToSendEvent(ctx)
@@ -642,6 +652,8 @@ func TestBlocksQueue_onReadyToSendEvent(t *testing.T) {
 			chain:               mc,
 			highestExpectedSlot: types.Slot(blockBatchLimit),
 		})
+		wsb, err := blocks.NewSignedBeaconBlock(util.NewBeaconBlock())
+		require.NoError(t, err)
 		queue.smm.addStateMachine(128)
 		queue.smm.machines[128].state = stateNew
 		queue.smm.addStateMachine(192)
@@ -651,8 +663,8 @@ func TestBlocksQueue_onReadyToSendEvent(t *testing.T) {
 		queue.smm.addStateMachine(320)
 		queue.smm.machines[320].state = stateDataParsed
 		queue.smm.machines[320].pid = pidDataParsed
-		queue.smm.machines[320].blocks = []block.SignedBeaconBlock{
-			wrapper.WrappedPhase0SignedBeaconBlock(util.NewBeaconBlock()),
+		queue.smm.machines[320].blocks = []interfaces.SignedBeaconBlock{
+			wsb,
 		}
 
 		handlerFn := queue.onReadyToSendEvent(ctx)
@@ -673,13 +685,15 @@ func TestBlocksQueue_onReadyToSendEvent(t *testing.T) {
 			chain:               mc,
 			highestExpectedSlot: types.Slot(blockBatchLimit),
 		})
+		wsb, err := blocks.NewSignedBeaconBlock(util.NewBeaconBlock())
+		require.NoError(t, err)
 		queue.smm.addStateMachine(256)
 		queue.smm.machines[256].state = stateSkipped
 		queue.smm.addStateMachine(320)
 		queue.smm.machines[320].state = stateDataParsed
 		queue.smm.machines[320].pid = pidDataParsed
-		queue.smm.machines[320].blocks = []block.SignedBeaconBlock{
-			wrapper.WrappedPhase0SignedBeaconBlock(util.NewBeaconBlock()),
+		queue.smm.machines[320].blocks = []interfaces.SignedBeaconBlock{
+			wsb,
 		}
 
 		handlerFn := queue.onReadyToSendEvent(ctx)
@@ -1038,7 +1052,7 @@ func TestBlocksQueue_stuckInUnfavourableFork(t *testing.T) {
 	finalizedEpoch := slots.ToEpoch(finalizedSlot)
 
 	genesisBlock := chain1[0]
-	require.NoError(t, beaconDB.SaveBlock(context.Background(), wrapper.WrappedPhase0SignedBeaconBlock(genesisBlock)))
+	util.SaveBlock(t, context.Background(), beaconDB, genesisBlock)
 	genesisRoot, err := genesisBlock.Block.HashTreeRoot()
 	require.NoError(t, err)
 
@@ -1066,7 +1080,7 @@ func TestBlocksQueue_stuckInUnfavourableFork(t *testing.T) {
 			db:    beaconDB,
 		},
 	)
-	fetcher.rateLimiter = leakybucket.NewCollector(6400, 6400, false)
+	fetcher.rateLimiter = leakybucket.NewCollector(6400, 6400, 1*time.Second, false)
 
 	queue := newBlocksQueue(ctx, &blocksQueueConfig{
 		blocksFetcher:       fetcher,
@@ -1079,8 +1093,8 @@ func TestBlocksQueue_stuckInUnfavourableFork(t *testing.T) {
 	for _, blk := range chain1[1:] {
 		parentRoot := bytesutil.ToBytes32(blk.Block.ParentRoot)
 		// Save block only if parent root is already in database or cache.
-		if beaconDB.HasBlock(ctx, parentRoot) || mc.HasInitSyncBlock(parentRoot) {
-			require.NoError(t, beaconDB.SaveBlock(ctx, wrapper.WrappedPhase0SignedBeaconBlock(blk)))
+		if beaconDB.HasBlock(ctx, parentRoot) || mc.HasBlock(ctx, parentRoot) {
+			util.SaveBlock(t, ctx, beaconDB, blk)
 			require.NoError(t, st.SetSlot(blk.Block.Slot))
 		}
 	}
@@ -1239,7 +1253,7 @@ func TestBlocksQueue_stuckWhenHeadIsSetToOrphanedBlock(t *testing.T) {
 	finalizedEpoch := slots.ToEpoch(finalizedSlot)
 
 	genesisBlock := chain[0]
-	require.NoError(t, beaconDB.SaveBlock(context.Background(), wrapper.WrappedPhase0SignedBeaconBlock(genesisBlock)))
+	util.SaveBlock(t, context.Background(), beaconDB, genesisBlock)
 	genesisRoot, err := genesisBlock.Block.HashTreeRoot()
 	require.NoError(t, err)
 
@@ -1261,8 +1275,8 @@ func TestBlocksQueue_stuckWhenHeadIsSetToOrphanedBlock(t *testing.T) {
 	for _, blk := range chain[1:84] {
 		parentRoot := bytesutil.ToBytes32(blk.Block.ParentRoot)
 		// Save block only if parent root is already in database or cache.
-		if beaconDB.HasBlock(ctx, parentRoot) || mc.HasInitSyncBlock(parentRoot) {
-			require.NoError(t, beaconDB.SaveBlock(ctx, wrapper.WrappedPhase0SignedBeaconBlock(blk)))
+		if beaconDB.HasBlock(ctx, parentRoot) || mc.HasBlock(ctx, parentRoot) {
+			util.SaveBlock(t, ctx, beaconDB, blk)
 			require.NoError(t, st.SetSlot(blk.Block.Slot))
 		}
 	}
@@ -1274,7 +1288,7 @@ func TestBlocksQueue_stuckWhenHeadIsSetToOrphanedBlock(t *testing.T) {
 	orphanedBlock := util.NewBeaconBlock()
 	orphanedBlock.Block.Slot = 85
 	orphanedBlock.Block.StateRoot = util.Random32Bytes(t)
-	require.NoError(t, beaconDB.SaveBlock(ctx, wrapper.WrappedPhase0SignedBeaconBlock(orphanedBlock)))
+	util.SaveBlock(t, ctx, beaconDB, orphanedBlock)
 	require.NoError(t, st.SetSlot(orphanedBlock.Block.Slot))
 	require.Equal(t, types.Slot(85), mc.HeadSlot())
 
@@ -1286,7 +1300,7 @@ func TestBlocksQueue_stuckWhenHeadIsSetToOrphanedBlock(t *testing.T) {
 			db:    beaconDB,
 		},
 	)
-	fetcher.rateLimiter = leakybucket.NewCollector(6400, 6400, false)
+	fetcher.rateLimiter = leakybucket.NewCollector(6400, 6400, 1*time.Second, false)
 
 	// Connect peer that has all the blocks available.
 	allBlocksPeer := connectPeerHavingBlocks(t, p2p, chain, finalizedSlot, p2p.Peers())
@@ -1303,12 +1317,13 @@ func TestBlocksQueue_stuckWhenHeadIsSetToOrphanedBlock(t *testing.T) {
 	})
 
 	require.NoError(t, queue.start())
-	isProcessedBlock := func(ctx context.Context, blk block.SignedBeaconBlock, blkRoot [32]byte) bool {
-		finalizedSlot, err := slots.EpochStart(mc.FinalizedCheckpt().Epoch)
+	isProcessedBlock := func(ctx context.Context, blk interfaces.SignedBeaconBlock, blkRoot [32]byte) bool {
+		cp := mc.FinalizedCheckpt()
+		finalizedSlot, err := slots.EpochStart(cp.Epoch)
 		if err != nil {
 			return false
 		}
-		if blk.Block().Slot() <= finalizedSlot || (beaconDB.HasBlock(ctx, blkRoot) || mc.HasInitSyncBlock(blkRoot)) {
+		if blk.Block().Slot() <= finalizedSlot || (beaconDB.HasBlock(ctx, blkRoot) || mc.HasBlock(ctx, blkRoot)) {
 			return true
 		}
 		return false
@@ -1326,8 +1341,8 @@ func TestBlocksQueue_stuckWhenHeadIsSetToOrphanedBlock(t *testing.T) {
 				continue
 			}
 
-			parentRoot := bytesutil.ToBytes32(blk.Block().ParentRoot())
-			if !beaconDB.HasBlock(ctx, parentRoot) && !mc.HasInitSyncBlock(parentRoot) {
+			parentRoot := blk.Block().ParentRoot()
+			if !beaconDB.HasBlock(ctx, parentRoot) && !mc.HasBlock(ctx, parentRoot) {
 				log.Errorf("%v: %#x", errParentDoesNotExist, blk.Block().ParentRoot())
 				continue
 			}
@@ -1343,6 +1358,6 @@ func TestBlocksQueue_stuckWhenHeadIsSetToOrphanedBlock(t *testing.T) {
 	for _, blk := range chain[:orphanedBlock.Block.Slot+32] {
 		blkRoot, err := blk.Block.HashTreeRoot()
 		require.NoError(t, err)
-		require.Equal(t, true, beaconDB.HasBlock(ctx, blkRoot) || mc.HasInitSyncBlock(blkRoot), "slot %d", blk.Block.Slot)
+		require.Equal(t, true, beaconDB.HasBlock(ctx, blkRoot) || mc.HasBlock(ctx, blkRoot), "slot %d", blk.Block.Slot)
 	}
 }

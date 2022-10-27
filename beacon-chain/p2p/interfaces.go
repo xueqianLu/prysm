@@ -4,16 +4,16 @@ import (
 	"context"
 
 	"github.com/ethereum/go-ethereum/p2p/enr"
-	"github.com/libp2p/go-libp2p-core/connmgr"
-	"github.com/libp2p/go-libp2p-core/host"
-	"github.com/libp2p/go-libp2p-core/network"
-	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"github.com/libp2p/go-libp2p/core/connmgr"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
-	"github.com/prysmaticlabs/prysm/beacon-chain/p2p/encoder"
-	"github.com/prysmaticlabs/prysm/beacon-chain/p2p/peers"
-	ethpb "github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1"
-	"github.com/prysmaticlabs/prysm/proto/prysm/v1alpha1/metadata"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/encoder"
+	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/peers"
+	ethpb "github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1"
+	"github.com/prysmaticlabs/prysm/v3/proto/prysm/v1alpha1/metadata"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -21,11 +21,10 @@ import (
 type P2P interface {
 	Broadcaster
 	SetStreamHandler
-	EncodingProvider
 	PubSubProvider
 	PubSubTopicUser
+	SenderEncoder
 	PeerManager
-	Sender
 	ConnectionHandler
 	PeersProvider
 	MetadataProvider
@@ -59,6 +58,12 @@ type ConnectionHandler interface {
 	connmgr.ConnectionGater
 }
 
+// SenderEncoder allows sending functionality from libp2p as well as encoding for requests and responses.
+type SenderEncoder interface {
+	EncodingProvider
+	Sender
+}
+
 // EncodingProvider provides p2p network encoding.
 type EncodingProvider interface {
 	Encoding() encoder.NetworkEncoding
@@ -77,7 +82,7 @@ type PeerManager interface {
 	ENR() *enr.Record
 	DiscoveryAddresses() ([]multiaddr.Multiaddr, error)
 	RefreshENR()
-	FindPeersWithSubnet(ctx context.Context, topic string, subIndex uint64, threshold uint64) (bool, error)
+	FindPeersWithSubnet(ctx context.Context, topic string, subIndex uint64, threshold int) (bool, error)
 	AddPingMethod(reqFunc func(ctx context.Context, id peer.ID) error)
 }
 
