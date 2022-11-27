@@ -13,7 +13,7 @@ CONFIG_NAME: 'minimal'
 # Transition
 # ---------------------------------------------------------------
 # 2**256-2**10 for testing minimal network
-TERMINAL_TOTAL_DIFFICULTY: 100
+TERMINAL_TOTAL_DIFFICULTY: 30000
 # By default, don't use these params
 TERMINAL_BLOCK_HASH: 0x0000000000000000000000000000000000000000000000000000000000000000
 TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH: 18446744073709551615
@@ -23,7 +23,7 @@ TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH: 18446744073709551615
 # Genesis
 # ---------------------------------------------------------------
 # [customized]
-MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 1
+MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 4
 # Jan 3, 2020
 MIN_GENESIS_TIME: 1578009600
 # Highest byte set to 0x01 to avoid collisions with mainnet versioning
@@ -44,7 +44,7 @@ ALTAIR_FORK_VERSION: 0x01000001
 ALTAIR_FORK_EPOCH: 10
 # Bellatrix
 BELLATRIX_FORK_VERSION: 0x02000001
-BELLATRIX_FORK_EPOCH: 20
+BELLATRIX_FORK_EPOCH: 100
 # Capella
 #CAPELLA_FORK_VERSION: 0x03000001
 #CAPELLA_FORK_EPOCH: 18446744073709551615
@@ -57,7 +57,6 @@ BELLATRIX_FORK_EPOCH: 20
 # ---------------------------------------------------------------
 # [customized] Faster for testing purposes
 SECONDS_PER_SLOT: 6
-SLOTS_PER_EPOCH: 40
 # 14 (estimate from Eth1 mainnet)
 SECONDS_PER_ETH1_BLOCK: 3
 # 2**8 (= 256) epochs
