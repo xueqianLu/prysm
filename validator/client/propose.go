@@ -145,6 +145,8 @@ func (v *validator) ProposeBlock(ctx context.Context, slot types.Slot, pubKey [f
 		trace.Int64Attribute("numAttestations", int64(len(blk.Block().Body().Attestations()))),
 	)
 
+	log.WithField("block version", blk.Version()).Info("luxq check")
+
 	if blk.Version() == version.Bellatrix {
 		p, err := blk.Block().Body().Execution()
 		if err != nil {

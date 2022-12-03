@@ -2,7 +2,9 @@ package blocks
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
+	"github.com/sirupsen/logrus"
 
 	"github.com/pkg/errors"
 	"github.com/prysmaticlabs/prysm/v3/beacon-chain/core/helpers"
@@ -104,6 +106,10 @@ func BatchVerifyDepositsSignatures(ctx context.Context, deposits []*ethpb.Deposi
 	if err != nil {
 		return false, err
 	}
+	f:=logrus.Fields{
+		"domain":hex.EncodeToString(domain),
+	}
+	log.WithFields(f).Info("compute domain")
 
 	verified := false
 	if err := verifyDepositDataWithDomain(ctx, deposits, domain); err != nil {

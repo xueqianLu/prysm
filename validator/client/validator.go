@@ -583,6 +583,7 @@ func (v *validator) UpdateDuties(ctx context.Context, slot types.Slot) error {
 	// Filter out the slashable public keys from the duties request.
 	filteredKeys := make([][fieldparams.BLSPubkeyLength]byte, 0, len(validatingKeys))
 	v.slashableKeysLock.RLock()
+	log.WithField("validator count", len(filteredKeys)).Info("luxq debug before get duty")
 	for _, pubKey := range validatingKeys {
 		if ok := v.eipImportBlacklistedPublicKeys[pubKey]; !ok {
 			filteredKeys = append(filteredKeys, pubKey)

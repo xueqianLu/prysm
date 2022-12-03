@@ -1,6 +1,7 @@
 package p2p
 
 import (
+	"github.com/pkg/errors"
 	"github.com/prysmaticlabs/prysm/v3/beacon-chain/p2p/encoder"
 	"github.com/prysmaticlabs/prysm/v3/config/params"
 	"github.com/prysmaticlabs/prysm/v3/time/slots"
@@ -21,9 +22,13 @@ func (s *Service) forkWatcher() {
 				// the updated fork digest. These repeatedly does
 				// this over the epoch, which might be slightly wasteful
 				// but is fine nonetheless.
-				_, err := addForkEntry(s.dv5Listener.LocalNode(), s.genesisTime, s.genesisValidatorsRoot)
-				if err != nil {
-					log.WithError(err).Error("Could not add fork entry")
+				if s.dv5Listener == nil {
+					log.WithError(errors.New("listener is nil")).Error("dv5listener is nil")
+				} else {
+					_, err := addForkEntry(s.dv5Listener.LocalNode(), s.genesisTime, s.genesisValidatorsRoot)
+					if err != nil {
+						log.WithError(err).Error("Could not add fork entry")
+					}
 				}
 
 				// from Bellatrix Epoch, the MaxGossipSize and the MaxChunkSize is changed to 10Mb.
