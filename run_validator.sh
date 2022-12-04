@@ -17,6 +17,7 @@ rpcport=$((7000+$nodeidx))
 beaconrpcport=$((4000+$nodeidx))
 beacongrpcport=$((3500+$nodeidx))
 
-./bvalidator --wallet-dir=$walldir --chain-config-file $PWD/testnet.yaml --wallet-password-file $password --datadir=$datadir --monitoring-port $monitorport --pprofport $pprofport --grpc-gateway-corsdomain '*' --grpc-gateway-port $grpcport --rpc-port $rpcport --verbosity debug --beacon-rpc-gateway-provider "127.0.0.1:$beacongrpcport" --beacon-rpc-provider "127.0.0.1:$beaconrpcport" > vnode$nodeidx.log 2>&1 &
-#bazel run //cmd/validator:validator --config=minimal -- --wallet-dir=$walldir --chain-config-file $PWD/testnet.yaml --wallet-password-file $password --datadir=$datadir --monitoring-port $monitorport --pprofport $pprofport --grpc-gateway-corsdomain '*' --grpc-gateway-port $grpcport --rpc-port $rpcport --verbosity debug --beacon-rpc-gateway-provider "127.0.0.1:$beacongrpcport" --beacon-rpc-provider "127.0.0.1:$beaconrpcport" > vnode$nodeidx.log 2>&1 &
+bazel run //cmd/validator:validator --config=minimal -- --wallet-dir=$walldir --chain-config-file $PWD/testnet.yaml --wallet-password-file $password --datadir=$datadir --monitoring-port $monitorport --pprofport $pprofport --grpc-gateway-corsdomain '*' --grpc-gateway-port $grpcport --rpc-port $rpcport --verbosity info --beacon-rpc-gateway-provider "127.0.0.1:$beacongrpcport" --beacon-rpc-provider "127.0.0.1:$beaconrpcport" > vnode$nodeidx.log 2>&1 &
+
+#./bvalidator --wallet-dir=$walldir --chain-config-file $PWD/testnet.yaml --wallet-password-file $password --datadir=$datadir --monitoring-port $monitorport --pprofport $pprofport --grpc-gateway-corsdomain '*' --grpc-gateway-port $grpcport --rpc-port $rpcport --verbosity info --beacon-rpc-gateway-provider "127.0.0.1:$beacongrpcport" --beacon-rpc-provider "127.0.0.1:$beaconrpcport" > vnode$nodeidx.log 2>&1 &
 
